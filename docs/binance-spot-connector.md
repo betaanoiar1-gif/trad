@@ -11,8 +11,10 @@ GET https://api.binance.com/api/v3/klines
 ```
 
 No API key, account endpoint, private credential, order endpoint, or trading
-operation is present. The connector is not started automatically by the CLI or
-Paper configuration.
+operation is present. The ordinary configuration CLI and Dashboard do not
+silently fetch remote data; the explicit `trad-runner` command is the opt-in
+integration that starts this public connector for each bounded or supervised
+cycle.
 
 ## Usage
 
@@ -86,7 +88,14 @@ Use a local deterministic replay for tests and backtests. A synchronized local
 UTC clock is recommended; if the local clock is behind Binance, a recently
 closed candle may be conservatively omitted rather than accepted early.
 
-## Testing
+## Runner integration and testing
+
+`trad-runner` wires this connector to the Spot paper engine and wires the
+separate `BinanceFuturesPublicConnector` to the Futures paper engine. Each
+cycle fetches a bounded completed-candle window, validates it before strategy
+selection, and keeps the position-opening guard closed on any transport,
+completeness, ordering, or freshness failure. The runner never treats Spot
+candles as Futures candles.
 
 Connector tests inject fixed HTTP responses and a deterministic clock, so they
 do not access Binance or require the internet:
