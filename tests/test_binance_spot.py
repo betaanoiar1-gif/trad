@@ -100,6 +100,11 @@ class BinanceSpotConnectorTests(unittest.TestCase):
         self.assertIsInstance(event, OHLCV)
         self.assertEqual(event.symbol, "BTCUSDT")
         self.assertEqual(len(fake_http.calls), 1)
+        self.assertTrue(
+            fake_http.calls[0][0].startswith(
+                "https://data-api.binance.vision/api/v3/klines?"
+            )
+        )
 
     def test_fetches_completed_klines_and_omits_in_progress_tail(self) -> None:
         payload = [
