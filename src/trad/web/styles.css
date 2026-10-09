@@ -41,9 +41,16 @@ footer { border-top: 1px solid var(--border); padding-top: 18px; padding-bottom:
 .overview-grid, .two-column { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
 .overview-grid { margin-bottom: 20px; }
 .automation-controls { display: flex; flex-wrap: wrap; gap: 9px; margin-bottom: 14px; }
+.automation-monitor-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 9px; margin: 15px 0; }
+.monitor-card { min-height: 66px; display: flex; flex-direction: column; justify-content: space-between; gap: 6px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: rgba(27, 36, 48, .55); }
+.monitor-card span { color: var(--muted); font-size: .67rem; text-transform: uppercase; letter-spacing: .06em; }
+.monitor-card strong { overflow-wrap: anywhere; font-size: .82rem; }
 .selection-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin: 15px 0; }
 .selection-card { padding: 13px; border: 1px solid var(--border); border-radius: 10px; background: rgba(104, 214, 208, .05); }
-.selection-card .selected { color: var(--green); font-weight: 800; }
+.selection-status { display: inline-block; margin-top: 5px; font-weight: 800; }
+.selection-status.selected { color: var(--green); }
+.selection-status.blocked { color: var(--red); }
+.selection-status.pending { color: var(--amber); }
 .strategy-failed { color: var(--red); }
 .automation-history-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 15px; margin-top: 18px; }
 .automation-history-grid h3 { margin-bottom: 8px; }
@@ -83,7 +90,9 @@ input::placeholder { color: #596878; }
 .wallet-row { display: grid; grid-template-columns: 1.3fr repeat(3, 1fr); gap: 8px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 9px; font-size: .79rem; }
 .wallet-row.header { color: var(--muted); border: 0; padding: 0 12px; font-size: .66rem; text-transform: uppercase; letter-spacing: .08em; }
 .wallet-row span:not(:first-child) { text-align: right; font-variant-numeric: tabular-nums; }
-.valuation-card, .position-card, .reconciliation { border-radius: 10px; padding: 12px; background: rgba(104, 214, 208, .06); border: 1px solid rgba(104, 214, 208, .16); font-size: .8rem; }
+.valuation-card, .position-card, .reconciliation, .market-observation { border-radius: 10px; padding: 12px; background: rgba(104, 214, 208, .06); border: 1px solid rgba(104, 214, 208, .16); font-size: .8rem; }
+.market-observation { margin: 12px 0; }
+.market-observation.pending { color: var(--amber); background: rgba(241, 193, 107, .06); border-color: rgba(241, 193, 107, .2); }
 .valuation-card strong, .position-card strong { color: var(--text); }
 .persistence-line { margin-top: 13px; font-size: .72rem; }
 .persistence-line strong { color: var(--text); }
@@ -121,6 +130,7 @@ td.num { text-align: right; font-variant-numeric: tabular-nums; }
 @media (max-width: 1000px) {
   .overview-grid, .two-column, .automation-history-grid { grid-template-columns: 1fr; }
   .history-grid, .selection-grid { grid-template-columns: 1fr; }
+  .automation-monitor-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .form-grid, .form-grid-three, .form-grid-four { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   label.wide { grid-column: span 2; }
 }
@@ -132,5 +142,6 @@ td.num { text-align: right; font-variant-numeric: tabular-nums; }
   .form-grid, .form-grid-two, .form-grid-three, .form-grid-four { grid-template-columns: 1fr; }
   label.wide { grid-column: auto; }
   .position-grid { grid-template-columns: repeat(2, 1fr); }
+  .automation-monitor-grid { grid-template-columns: 1fr; }
   .wallet-row { grid-template-columns: 1fr repeat(3, .8fr); font-size: .7rem; }
 }

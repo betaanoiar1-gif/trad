@@ -84,9 +84,9 @@
         <div>
           <p class="eyebrow">AUTOMATION</p>
           <h2>Strategy selection and paper loop</h2>
-          <p class="help">Historical evaluation is required before start. The runner uses only persisted completed candles, records every candidate including failures, and resumes in a paused state after a restart.</p>
+          <p class="help">The Dashboard can fetch a bounded completed-candle window from the configured public Spot and Futures sources when you evaluate or start. It records every candidate including failures, polls in the background only after an accepted selection, and resumes in a paused state after a restart.</p>
         </div>
-        <span id="automation-state" class="badge badge-danger">STOPPED</span>
+        <span id="automation-state" class="badge badge-warning">STOPPED</span>
       </div>
       <div class="automation-controls">
         <button id="automation-evaluate" class="button button-secondary" type="button">Evaluate all strategies</button>
@@ -96,7 +96,8 @@
         <button id="automation-stop" class="button button-danger" type="button">Stop</button>
       </div>
       <p id="automation-reason" class="health-reason">No strategy selection has been persisted yet.</p>
-      <div id="automation-selected" class="selection-grid"><div class="empty">No accepted strategy. No new automated positions may open.</div></div>
+      <div id="automation-monitor" class="automation-monitor-grid"><div class="empty">Waiting for backend telemetry…</div></div>
+      <div id="automation-selected" class="selection-grid"><div class="empty">No evaluation yet. Record or fetch at least 40 completed candles per domain before selecting a strategy.</div></div>
       <div id="strategy-results" class="table-wrap"><div class="empty">Strategy performance will appear after at least 40 completed candles are recorded per domain.</div></div>
       <div class="automation-history-grid">
         <div><h3>Recent decisions</h3><div id="automation-decisions" class="history-box"><div class="empty">No decisions yet.</div></div></div>
@@ -114,10 +115,11 @@
           <span id="spot-health-badge" class="badge badge-danger">NO DATA</span>
         </div>
         <p id="spot-health-reason" class="health-reason">Waiting for validated market data.</p>
+        <div id="spot-market-observation" class="market-observation">No completed Spot candle has been accepted yet.</div>
         <div id="spot-wallet" class="wallet-grid"><div class="loading">Loading wallet…</div></div>
         <div id="spot-valuation" class="valuation-card"></div>
         <div id="spot-reconciliation" class="reconciliation"></div>
-        <div class="persistence-line"><strong>Storage:</strong> in-memory Spot engine; balances reset when the dashboard process restarts.</div>
+        <div class="persistence-line"><strong>Storage:</strong> manual Spot state is in-memory; the automation runner journals and restores its Spot snapshot.</div>
       </article>
       <article class="engine-card futures-card">
         <div class="section-heading compact">
@@ -128,6 +130,7 @@
           <span id="futures-health-badge" class="badge badge-danger">NO DATA</span>
         </div>
         <p id="futures-health-reason" class="health-reason">Waiting for validated market data.</p>
+        <div id="futures-market-observation" class="market-observation">No completed Futures candle has been accepted yet.</div>
         <div id="futures-wallet" class="wallet-grid"><div class="loading">Loading wallet…</div></div>
         <div id="futures-valuation" class="valuation-card"></div>
         <div class="persistence-line"><strong>Storage:</strong> <span id="futures-storage">checking local SQLite…</span></div>

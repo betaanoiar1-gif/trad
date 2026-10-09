@@ -231,6 +231,7 @@ __all__ = [
     "FuturesValidationError",
     "DashboardError",
     "DashboardHTTPServer",
+    "DashboardMarketDataError",
     "DashboardPersistenceError",
     "DashboardRequestError",
     "DashboardService",
@@ -295,6 +296,7 @@ __all__ = [
 _DASHBOARD_EXPORTS = {
     "DashboardError",
     "DashboardHTTPServer",
+    "DashboardMarketDataError",
     "DashboardPersistenceError",
     "DashboardRequestError",
     "DashboardService",

@@ -118,12 +118,14 @@ The dependency-free dashboard is documented in
 `PYTHONPATH=src python3 -m trad.dashboard`; it serves
 `http://127.0.0.1:8765/` by default, binds only to localhost, and stores
 Futures accounting plus the separate automation journal in ignored local
-`var/` SQLite files. It uses explicit candle and execution inputs and never
-contacts a live exchange unless the separate public-data runner is started.
-The dashboard tests use a local ephemeral HTTP server and do not require a
-browser driver or network access. Strategy selection and runner recovery are
-also deterministic offline tests; the bounded `trad-runner --once` command
-uses only public read-only kline endpoints when explicitly run.
+`var/` SQLite files. Its default automation controls explicitly use only the
+public Spot and Futures kline endpoints when Evaluate or Start is pressed; the
+manual market-data form remains available for offline replay. No private
+exchange route or order endpoint exists. The dashboard tests use a local
+ephemeral HTTP server and do not require a browser driver or network access.
+Strategy selection and runner recovery are also deterministic offline tests;
+the bounded `trad-runner --once` command uses only public read-only kline
+endpoints when explicitly run.
 
 ## Modes and safety boundary
 

@@ -82,9 +82,14 @@ Start it locally with:
 PYTHONPATH=src python3 -m trad.dashboard
 ```
 
-The server binds to localhost by default. Use `--host 0.0.0.0` only when a
-controlled local preview requires it; this is not a public deployment or an
-authenticated financial-control service.
+The Dashboard's Evaluate and Start controls explicitly fetch bounded,
+completed candles from the separate public Binance Spot and USDⓈ-M Futures
+kline endpoints, then run the paper loop in a supervised background thread.
+If the public source is unavailable, the UI records the error and remains
+fail-closed; the explicit market-data form remains available for offline
+replay. The server binds to localhost by default. Use `--host 0.0.0.0` only
+when a controlled local preview requires it; this is not a public deployment
+or an authenticated financial-control service.
 
 ## Automated paper research status
 

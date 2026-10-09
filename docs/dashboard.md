@@ -20,9 +20,12 @@ The service owns two separate engine instances:
   every candidate result, market events, decisions, operations, errors, and
   recovery/state transitions. It never shares Spot and Futures accounting.
 
-No route fetches market data, accesses credentials, calls a private endpoint,
-or submits an exchange order. The browser never receives a filesystem path or
-an exception traceback.
+The manual market-data route accepts only explicit completed candles. When
+started with its default CLI configuration, the Dashboard can explicitly fetch
+public Spot and Futures OHLCV windows when Evaluate or Start is pressed, then
+run a bounded background polling loop. It never accesses credentials, calls a
+private endpoint, or submits an exchange order. The browser never receives a
+filesystem path or an exception traceback.
 
 ## Install and start
 
@@ -56,7 +59,10 @@ PYTHONPATH=src python3 -m trad.dashboard \
   --host 127.0.0.1 \
   --port 8765 \
   --futures-db var/my-futures-dashboard.sqlite3 \
-  --runner-db var/my-trad-runner.sqlite3
+  --runner-db var/my-trad-runner.sqlite3 \
+  --symbol BTC/USDT \
+  --interval 1m \
+  --history-limit 250
 ```
 
 A controlled preview may start the process with `--host 0.0.0.0`; that is an
@@ -67,11 +73,13 @@ untrusted network.
 ## Using the dashboard safely
 
 1. Open the local URL and confirm the `PAPER ONLY` warning.
-2. Both health badges begin at `NO DATA`. Enter a completed candle in **Record
-   explicit market data**. All candle times, prices, and volume are submitted
-   explicitly; the page does not query or invent a live price.
-3. Confirm that the Spot and Futures badges show `SAFE` before submitting or
-   filling an order.
+2. For automation, press **Evaluate all strategies**. The default CLI
+   configuration fetches a bounded completed-candle window from the separate
+   public Spot and Futures endpoints. If no remote provider is configured,
+   enter completed candles in **Record explicit market data** instead.
+3. After a background cycle or an explicit candle submission, confirm that
+   the Spot and Futures badges show `SAFE` before submitting or filling an
+   order.
 4. Supply a unique client order id for every Spot or Futures submission. A
    retry with the same parameters is idempotent; a retry with changed
    parameters is rejected by the engine.
@@ -127,7 +135,7 @@ The JSON API is local and relative to the dashboard origin:
 | `POST /api/futures/orders/{id}/cancel` | Cancel a Futures accepted or partial order |
 | `POST /api/futures/mark` | Apply an explicit Futures mark and report liquidation |
 | `POST /api/futures/funding` | Apply a caller-supplied funding rate and payment id |
-| `POST /api/automation/evaluate` | Evaluate every registered strategy from persisted candles |
+| `POST /api/automation/evaluate` | Fetch and evaluate a fresh public window, or evaluate persisted candles when no provider is configured |
 | `POST /api/automation/start` | Start only after accepted selections exist; requires confirmation |
 | `POST /api/automation/pause` | Safely pause new automated decisions |
 | `POST /api/automation/resume` | Resume an accepted selection; requires confirmation |
@@ -161,7 +169,8 @@ paper balances and still leaves the safety monitor fail-closed until fresh
 validated data arrives. The Futures engine continues to use its own durable
 SQLite accounting store; the two persistence domains remain separate.
 
-The browser is not a strategy runner, live trading terminal, performance
+The browser is a monitor/control surface; the Python backend owns the
+strategy runner. The dashboard is not a live trading terminal, performance
 promise, or exchange simulator. It does not model network latency, order-book
 matching, slippage, real venue funding schedules, exchange liquidation queues,
 private account state, or real order execution.
@@ -175,6 +184,9 @@ private account state, or real order execution.
   data.
 - `422 order_rejected`: read the stable engine reason in the order table and
   correct the explicit input or safety state.
+- `503 market_data_unavailable`: the configured public source failed or returned
+  incomplete data; no new automated position is opened. Inspect the runner
+  error/recovery panel and wait for a fresh validated window.
 - `503 persistence_unavailable`: stop the process and inspect the local SQLite
   store using the Futures persistence/recovery documentation; do not delete it
   to hide an inconsistency.

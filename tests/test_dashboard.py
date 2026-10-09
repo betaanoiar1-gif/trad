@@ -9,7 +9,9 @@ import unittest
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
-from trad.dashboard import DashboardHTTPServer, DashboardService
+from trad.autonomous import RunnerConfig
+from trad.dashboard import DashboardHTTPServer, DashboardRequestError, DashboardService
+from trad.market_data import OHLCV
 from trad.futures_paper import FuturesPaperEngine, FuturesPersistenceError, FuturesReconciliationError
 
 
@@ -32,6 +34,29 @@ def market_payload(domain: str = "both") -> dict[str, object]:
         "volume": "1",
         "checked_at": NOW.isoformat(),
     }
+
+
+def public_history() -> tuple[OHLCV, ...]:
+    events: list[OHLCV] = []
+    for index in range(180):
+        opened = NOW - timedelta(minutes=180 - index)
+        completed = opened + timedelta(minutes=1)
+        close = 100.0 + index * 0.5
+        events.append(
+            OHLCV(
+                symbol="BTC/USDT",
+                timestamp=opened,
+                close_time=completed,
+                received_at=completed,
+                timeframe_seconds=60,
+                open=close,
+                high=close + 1,
+                low=close - 1,
+                close=close,
+                volume=1,
+            )
+        )
+    return tuple(events)
 
 
 class DashboardHTTPTests(unittest.TestCase):
@@ -75,6 +100,8 @@ class DashboardHTTPTests(unittest.TestCase):
         self.assertIn("No fills yet.", script)
         self.assertIn("showToast(error.message", script)
         self.assertIn("/api/automation/evaluate", script)
+        self.assertIn("NOT EVALUATED", script)
+        self.assertIn("automation-monitor", page)
         status, styles = self.request("GET", "/static/styles.css")
         self.assertEqual(status, 200)
         self.assertIn("--cyan", styles)
@@ -213,6 +240,66 @@ class DashboardHTTPTests(unittest.TestCase):
 
 
 class DashboardPersistenceTests(unittest.TestCase):
+    def test_public_sources_evaluate_and_run_in_dashboard_background(self) -> None:
+        candles = public_history()
+        calls = {"spot": 0, "futures": 0}
+        background_cycle = threading.Event()
+
+        def provider(domain: str):
+            def fetch() -> tuple[OHLCV, ...]:
+                calls[domain] += 1
+                if calls[domain] >= 2:
+                    background_cycle.set()
+                return candles
+
+            return fetch
+
+        with TemporaryDirectory() as directory:
+            service = DashboardService(
+                futures_database_path=":memory:",
+                runner_database_path=Path(directory) / "runner.sqlite3",
+                runner_config=RunnerConfig(history_limit=180, refresh_seconds=0.01),
+                public_providers={"spot": provider("spot"), "futures": provider("futures")},
+                clock=lambda: NOW + timedelta(minutes=180, seconds=5),
+            )
+            try:
+                evaluated = service.evaluate_automation({"domain": "both"})
+                self.assertEqual(evaluated["data_source"], "public_binance")
+                self.assertEqual(evaluated["candle_counts"], {"spot": 180, "futures": 180})
+                self.assertTrue(evaluated["selections"]["spot"]["selected_strategy"])
+                self.assertTrue(evaluated["selections"]["futures"]["selected_strategy"])
+                started = service.start_automation()
+                self.assertEqual(started["state"], "running")
+                self.assertTrue(started["background_loop"]["configured"])
+                self.assertTrue(background_cycle.wait(1))
+                paused = service.pause_automation()
+                self.assertEqual(paused["state"], "paused")
+                self.assertFalse(paused["background_loop"]["running"])
+                self.assertGreaterEqual(calls["spot"], 2)
+                self.assertGreaterEqual(calls["futures"], 2)
+            finally:
+                service.close()
+
+    def test_public_source_failure_is_recorded_and_stays_fail_closed(self) -> None:
+        def fail() -> tuple[OHLCV, ...]:
+            raise OSError("provider unavailable")
+
+        with TemporaryDirectory() as directory:
+            service = DashboardService(
+                futures_database_path=":memory:",
+                runner_database_path=Path(directory) / "runner.sqlite3",
+                public_providers={"spot": fail, "futures": fail},
+                clock=lambda: NOW,
+            )
+            try:
+                with self.assertRaises(DashboardRequestError):
+                    service.evaluate_automation({"domain": "spot"})
+                snapshot = service.snapshot()
+                self.assertEqual(snapshot["automation"]["state"], "stopped")
+                self.assertEqual(snapshot["automation"]["recent_errors"][0]["category"], "public_data")
+            finally:
+                service.close()
+
     def test_futures_recovery_is_visible_without_claiming_spot_durability(self) -> None:
         with TemporaryDirectory() as directory:
             path = Path(directory) / "dashboard.sqlite3"

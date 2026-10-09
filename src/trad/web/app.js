@@ -62,8 +62,21 @@
       <div class="wallet-row"><span><strong>${value(balance.asset)}</strong></span><span>${money(balance.available)}</span><span>${money(balance.reserved)}</span><span>${money(balance.total)}</span></div>`).join("")}`;
   }
 
+  function renderMarketObservation(targetId, state, domain) {
+    const target = $(targetId);
+    const event = state.last_market_event;
+    if (!event) {
+      target.textContent = `No completed ${domain} candle has been accepted yet.`;
+      target.className = "market-observation pending";
+      return;
+    }
+    target.className = "market-observation";
+    target.innerHTML = `<strong>Last accepted ${escapeHtml(domain)} candle</strong> · close ${money(event.close)}<br><span class="muted">completed ${value(event.close_time)} · received ${value(event.received_at)}</span>`;
+  }
+
   function renderSpot(state) {
     renderWallet("#spot-wallet", state.wallet);
+    renderMarketObservation("#spot-market-observation", state, "Spot");
     healthBadge(state.market_data, "#spot-health-badge", "#spot-health-reason");
     const valuation = state.valuation;
     $("#spot-valuation").innerHTML = valuation ? `
@@ -79,6 +92,7 @@
 
   function renderFutures(state) {
     renderWallet("#futures-wallet", state.wallet);
+    renderMarketObservation("#futures-market-observation", state, "Futures");
     healthBadge(state.market_data, "#futures-health-badge", "#futures-health-reason");
     const storage = state.persistence || {};
     $("#futures-storage").textContent = storage.durable ? "durable local SQLite snapshots + recovery" : "in-memory only";
@@ -153,18 +167,78 @@
     const state = automation || {};
     const current = String(state.state || "unavailable");
     const badge = $("#automation-state");
-    badge.className = `badge ${current === "running" ? "badge-success" : current === "blocked" ? "badge-danger" : "badge-warning"}`;
+    const badgeClass = current === "running" ? "badge-success" : current === "paused" ? "badge-info" : current === "blocked" ? "badge-danger" : "badge-warning";
+    badge.className = `badge ${badgeClass}`;
     badge.textContent = current.replaceAll("_", " ").toUpperCase();
-    $("#automation-reason").textContent = state.blocked_reason || (current === "running" ? "Paper loop is active and waits for completed validated candles." : "Evaluate accepted strategies before starting the paper loop.");
+    const controls = {
+      "#automation-evaluate": current === "running",
+      "#automation-start": current === "running" || current === "paused",
+      "#automation-pause": current !== "running",
+      "#automation-resume": current !== "paused",
+      "#automation-stop": current === "stopped",
+    };
+    Object.entries(controls).forEach(([selector, disabled]) => {
+      const control = $(selector);
+      if (control) control.disabled = disabled;
+    });
+
+    const selections = state.selections || {};
     const selected = state.selected || {};
-    const selectionNode = $("#automation-selected");
-    const domains = ["spot", "futures"];
-    selectionNode.innerHTML = domains.map((domain) => {
-      const name = selected[domain];
-      return `<div class="selection-card"><strong>${escapeHtml(domain.toUpperCase())}</strong><br><span class="${name ? "selected" : "negative"}">${name ? `selected: ${value(name)}` : "NO ACCEPTED STRATEGY — BLOCKED"}</span></div>`;
-    }).join("");
+    const hasSelection = (domain) => Object.prototype.hasOwnProperty.call(selections, domain);
+    const selectionText = (domain) => {
+      if (!hasSelection(domain)) {
+        return {
+          title: "NOT EVALUATED",
+          detail: "Waiting for 40+ completed candles and an evaluation run.",
+          className: "pending",
+        };
+      }
+      if (selected[domain]) {
+        return {
+          title: `SELECTED: ${selected[domain]}`,
+          detail: selections[domain].reason || "Accepted by the backend selection rules.",
+          className: "selected",
+        };
+      }
+      return {
+        title: "NO ACCEPTED STRATEGY",
+        detail: selections[domain].reason || "New automated positions remain blocked.",
+        className: "blocked",
+      };
+    };
+    const cards = ["spot", "futures"].map((domain) => {
+      const status = selectionText(domain);
+      return `<div class="selection-card"><strong>${escapeHtml(domain.toUpperCase())}</strong><br><span class="selection-status ${status.className}">${escapeHtml(status.title)}</span><br><span class="muted">${value(status.detail)}</span></div>`;
+    });
+    $("#automation-selected").innerHTML = cards.join("");
+
+    const counts = state.counts || {};
+    const background = state.background_loop || {};
+    const source = state.data_source === "public_binance" ? "Public Spot + Futures sources" : "Dashboard market-data API";
+    const loop = background.configured ? (background.running ? "Polling in background" : "Configured · not running") : "Manual feed only";
+    const loopClass = background.running ? "positive" : background.last_error ? "negative" : "";
+    $("#automation-monitor").innerHTML = [
+      ["Data source", source, ""],
+      ["Background loop", loop, loopClass],
+      ["Last cycle", state.last_cycle_at || "No cycle yet", ""],
+      ["Journal", state.persistent_journal ? "Persistent SQLite" : "Memory only", state.persistent_journal ? "positive" : "negative"],
+      ["Market events", counts.market_events ?? 0, ""],
+      ["Decisions", counts.decisions ?? 0, ""],
+      ["Operations", counts.operations ?? 0, ""],
+      ["Errors / recovery", `${counts.run_errors ?? 0} / ${counts.recovery_events ?? 0}`, counts.run_errors ? "negative" : ""],
+    ].map(([label, content, className]) => `<div class="monitor-card"><span>${escapeHtml(label)}</span><strong class="${className}">${value(content)}</strong></div>`).join("");
+    if (background.last_error) {
+      $("#automation-reason").textContent = background.last_error;
+    } else if (current === "running") {
+      $("#automation-reason").textContent = "Paper loop is active; this page refreshes backend state every five seconds.";
+    } else if (current === "blocked" && Object.keys(selections).length === 0) {
+      $("#automation-reason").textContent = "The runner has not evaluated a strategy yet. Evaluate public or persisted completed candles before starting.";
+    } else {
+      $("#automation-reason").textContent = state.blocked_reason || "Evaluate accepted strategies before starting the paper loop.";
+    }
+
     const rows = [];
-    Object.entries(state.selections || {}).forEach(([domain, selection]) => {
+    Object.entries(selections).forEach(([domain, selection]) => {
       (selection.results || []).forEach((result) => {
         const metrics = result.validation || {};
         rows.push(`<tr><td>${value(domain)}</td><td><strong>${value(result.strategy_display_name || result.strategy_name)}</strong><br><span class="muted">${value(result.strategy_name)}</span></td><td class="${result.accepted ? "selected" : "strategy-failed"}">${value(result.status)}</td><td>${result.accepted ? "accepted" : "failed"}</td><td class="num">${value(metrics.return_pct)}</td><td class="num">${value(metrics.max_drawdown)}</td><td class="num">${value(metrics.trades, "0")}</td><td>${value((result.failure_reasons || []).join("; "))}</td></tr>`);

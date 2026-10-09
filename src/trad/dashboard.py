@@ -1,9 +1,10 @@
 """Local browser dashboard and API integration for the paper engines.
 
-The dashboard is deliberately small and dependency-free.  It owns one Spot
+The dashboard is deliberately small and dependency-free. It owns one Spot
 engine and one Futures engine, delegates all accounting to those engines, and
-exposes only deterministic paper operations over a local HTTP server.  It does
-not fetch market data, submit exchange orders, or persist credentials.
+exposes paper operations over a local HTTP server. The CLI can opt into the
+public Binance OHLCV providers for historical evaluation and a supervised
+background paper loop; it never submits exchange orders or persists credentials.
 """
 
 from __future__ import annotations
@@ -19,11 +20,12 @@ import json
 import math
 from pathlib import Path
 import threading
-from typing import Any, Callable, Mapping
+from typing import Any, Callable, Mapping, Sequence
 from urllib.parse import urlsplit
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from .autonomous import AutonomousPaperRunner, RunnerConfig
+from .backtest import validate_historical_candles
 from .futures_paper import (
     FuturesError,
     FuturesOrderStatus,
@@ -37,6 +39,7 @@ from .spot_paper import (
     SpotPaperEngine,
     SpotPaperError,
 )
+from .runner import build_public_providers
 
 
 DEFAULT_DASHBOARD_HOST = "127.0.0.1"
@@ -51,6 +54,10 @@ class DashboardError(RuntimeError):
 
 class DashboardRequestError(DashboardError, ValueError):
     """Raised when an API request is malformed or cannot be accepted."""
+
+
+class DashboardMarketDataError(DashboardRequestError):
+    """Raised when a configured public market-data source cannot be used."""
 
 
 class DashboardPersistenceError(DashboardError):
@@ -75,10 +82,15 @@ class DashboardService:
         runner: AutonomousPaperRunner | None = None,
         runner_database_path: str | Path | None = None,
         runner_config: RunnerConfig | None = None,
+        public_providers: Mapping[str, Callable[[], Sequence[OHLCV]]] | None = None,
         clock: Callable[[], datetime] | None = None,
     ) -> None:
         self._lock = threading.RLock()
         self._clock = clock or (lambda: datetime.now(timezone.utc))
+        self._public_providers = dict(public_providers or {})
+        self._background_stop = threading.Event()
+        self._background_thread: threading.Thread | None = None
+        self._background_error: str | None = None
         self.spot = spot or SpotPaperEngine(clock=self._clock)
         if futures is not None:
             self.futures = futures
@@ -117,6 +129,8 @@ class DashboardService:
         with self._lock:
             if self._closed:
                 return
+            self.runner.pause()
+            self._stop_background_loop()
             self.runner.close()
             self.futures.close()
             self._closed = True
@@ -149,6 +163,118 @@ class DashboardService:
             self.runner.journal.update_operation(domain, key, status, payload, error)
         except Exception as exc:
             raise DashboardPersistenceError("could not finalize manual paper operation") from exc
+
+    def _required_domains(self) -> tuple[str, ...]:
+        return ("spot", "futures") if self.runner.config.run_both_domains else ("spot",)
+
+    def _persisted_histories(self, domains: Sequence[str] | None = None) -> dict[str, tuple[OHLCV, ...]]:
+        histories: dict[str, tuple[OHLCV, ...]] = {}
+        for domain in tuple(domains or self._required_domains()):
+            history = self.runner.journal.market_events(domain)
+            if len(history) < 40:
+                raise DashboardRequestError(
+                    f"at least 40 persisted {domain} candles are required before evaluation"
+                )
+            histories[domain] = history
+        return histories
+
+    def _fetch_public_histories(self, domains: Sequence[str] | None = None) -> dict[str, Sequence[OHLCV]]:
+        if not self._public_providers:
+            raise DashboardRequestError(
+                "no public market-data provider is configured; record completed candles first"
+            )
+        histories: dict[str, Sequence[OHLCV]] = {}
+        for domain in tuple(domains or self._required_domains()):
+            provider = self._public_providers.get(domain)
+            if provider is None:
+                raise DashboardRequestError(f"public {domain} market-data provider is not configured")
+            try:
+                fetched = validate_historical_candles(
+                    tuple(provider()),
+                    expected_symbol=self.runner.config.symbol,
+                    minimum=40,
+                )
+            except Exception as exc:
+                message = f"public {domain} market data is unavailable or incomplete: {type(exc).__name__}: {exc}"
+                self._background_error = message
+                try:
+                    self.runner.journal.record_error(domain, "public_data", message, {})
+                except Exception:
+                    pass
+                raise DashboardMarketDataError(message) from exc
+            if not fetched:
+                message = f"public {domain} market data returned no completed candles"
+                self._background_error = message
+                try:
+                    self.runner.journal.record_error(domain, "public_data", message, {})
+                except Exception:
+                    pass
+                raise DashboardMarketDataError(message)
+            histories[domain] = fetched
+        return histories
+
+    def _ensure_selection_for_start(self) -> None:
+        snapshot = self.runner.snapshot()
+        selections = snapshot.get("selections", {})
+        if all(domain in selections for domain in self._required_domains()):
+            return
+        # A configured public source makes the Dashboard's Start button useful:
+        # it performs a bounded historical evaluation first. Without one, keep
+        # the existing fail-closed behavior and let runner.start explain why.
+        if self._public_providers:
+            self.runner.evaluate_all(self._fetch_public_histories())
+
+    def _run_background_loop(self, stop_event: threading.Event) -> None:
+        try:
+            self.runner.run_forever(self._public_providers, stop_event=stop_event)
+        except Exception as exc:
+            self._background_error = f"{type(exc).__name__}: {exc}"
+            try:
+                self.runner.journal.record_error(None, "dashboard_background", self._background_error, {})
+            except Exception:
+                pass
+
+    def _start_background_loop(self) -> None:
+        if not self._public_providers:
+            return
+        if self._background_thread is not None and self._background_thread.is_alive():
+            return
+        self._background_stop = threading.Event()
+        self._background_error = None
+        self._background_thread = threading.Thread(
+            target=self._run_background_loop,
+            args=(self._background_stop,),
+            name="trad-public-paper-loop",
+            daemon=True,
+        )
+        self._background_thread.start()
+
+    def _stop_background_loop(self) -> None:
+        self._background_stop.set()
+        thread = self._background_thread
+        self._background_thread = None
+        if thread is not None and thread is not threading.current_thread():
+            # The public connector has a bounded ten-second request timeout;
+            # wait long enough that closing engines cannot race an in-flight
+            # provider cycle.
+            thread.join(timeout=12)
+        if thread is not None and thread.is_alive():
+            self._background_thread = thread
+
+    def _automation_snapshot(self) -> dict[str, Any]:
+        automation = self.runner.snapshot()
+        automation["data_source"] = "public_binance" if self._public_providers else "dashboard_market_data_api"
+        automation["background_loop"] = {
+            "configured": bool(self._public_providers),
+            "running": self._background_thread is not None and self._background_thread.is_alive(),
+            "last_error": self._background_error,
+            "description": (
+                "Dashboard-owned public Spot and Futures polling loop"
+                if self._public_providers
+                else "No remote provider; use the market-data API to feed completed candles"
+            ),
+        }
+        return automation
 
     def snapshot(self) -> dict[str, Any]:
         """Return a browser-safe snapshot composed from authoritative engines."""
@@ -203,7 +329,7 @@ class DashboardService:
                 "simulation_only": True,
                 "generated_at": now,
                 "warning": "Paper trading only: no real exchange orders are submitted.",
-                "automation": self.runner.snapshot(),
+                "automation": self._automation_snapshot(),
                 "spot": {
                     "symbol": self.spot.symbol_rules.symbol,
                     "wallet": spot_wallet,
@@ -414,33 +540,48 @@ class DashboardService:
             )
 
     def evaluate_automation(self, payload: Mapping[str, Any] | None = None) -> dict[str, Any]:
-        """Evaluate persisted chronological candles without starting orders."""
+        """Evaluate a fresh public window, or persisted candles in offline mode."""
 
         with self._lock:
             self._ensure_open()
+            if self.runner.state.value == "running":
+                raise DashboardRequestError("pause automation before replacing its strategy evaluation")
             data = _object(payload or {}, "automation evaluation request")
             domain = _choice(data.get("domain", "both"), {"spot", "futures", "both"}, "domain")
             domains = ("spot", "futures") if domain == "both" else (domain,)
+            if self._public_providers:
+                histories = self._fetch_public_histories(domains)
+            else:
+                histories = self._persisted_histories(domains)
             selections: dict[str, Any] = {}
             for target in domains:
-                history = self.runner.journal.market_events(target)
-                if len(history) < 40:
-                    raise DashboardRequestError(f"at least 40 persisted {target} candles are required before evaluation")
-                selections[target] = self.runner.evaluate(target, history).as_dict()
-            return {"status": "evaluated", "selections": selections, "runner": self.runner.snapshot()}
+                if target not in histories:
+                    raise DashboardRequestError(f"no {target} market-data history is available")
+                selections[target] = self.runner.evaluate(target, histories[target]).as_dict()
+            return {
+                "status": "evaluated",
+                "data_source": "public_binance" if self._public_providers else "dashboard_market_data_api",
+                "candle_counts": {target: len(histories[target]) for target in domains},
+                "selections": selections,
+                "runner": self._automation_snapshot(),
+            }
 
     def start_automation(self) -> dict[str, Any]:
         with self._lock:
             self._ensure_open()
+            self._ensure_selection_for_start()
             result = self.runner.start()
             if result["state"] == "blocked":
                 raise DashboardRequestError(result.get("blocked_reason") or "automation is blocked")
-            return result
+            self._start_background_loop()
+            return self._automation_snapshot()
 
     def pause_automation(self) -> dict[str, Any]:
         with self._lock:
             self._ensure_open()
-            return self.runner.pause()
+            result = self.runner.pause()
+            self._stop_background_loop()
+            return self._automation_snapshot()
 
     def resume_automation(self) -> dict[str, Any]:
         with self._lock:
@@ -448,12 +589,16 @@ class DashboardService:
             result = self.runner.resume()
             if result["state"] == "blocked":
                 raise DashboardRequestError(result.get("blocked_reason") or "automation is blocked")
-            return result
+            self._start_background_loop()
+            return self._automation_snapshot()
 
     def stop_automation(self) -> dict[str, Any]:
         with self._lock:
             self._ensure_open()
-            return self.runner.stop()
+            self.runner.pause()
+            self._stop_background_loop()
+            self.runner.stop()
+            return self._automation_snapshot()
 
     def _health_snapshot(self) -> dict[str, Any]:
         now = self._now()
@@ -719,7 +864,9 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
         self.wfile.write(content)
 
     def _handle_exception(self, exc: Exception) -> None:
-        if isinstance(exc, DashboardRequestError):
+        if isinstance(exc, DashboardMarketDataError):
+            self._json_error(HTTPStatus.SERVICE_UNAVAILABLE, "market_data_unavailable", str(exc))
+        elif isinstance(exc, DashboardRequestError):
             self._json_error(HTTPStatus.BAD_REQUEST, "invalid_request", str(exc))
         elif isinstance(exc, (DashboardPersistenceError, FuturesPersistenceError, FuturesReconciliationError)):
             self._json_error(
@@ -749,6 +896,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--host", default=DEFAULT_DASHBOARD_HOST, help="bind host (default: localhost)")
     parser.add_argument("--port", type=int, default=DEFAULT_DASHBOARD_PORT, help="bind port (default: 8765)")
+    parser.add_argument("--symbol", default="BTC/USDT", help="public Spot/Futures symbol (default: BTC/USDT)")
+    parser.add_argument("--interval", default="1m", help="public fixed-duration interval (default: 1m)")
+    parser.add_argument("--history-limit", type=int, default=250, help="completed candles fetched for evaluation and cycles")
     parser.add_argument(
         "--futures-db",
         type=Path,
@@ -769,9 +919,18 @@ def main(argv: list[str] | None = None) -> int:
     if not 1 <= args.port <= 65535:
         raise SystemExit("port must be between 1 and 65535")
     try:
+        if args.history_limit < 40:
+            raise SystemExit("history-limit must be at least 40")
+        public_providers = build_public_providers(args.symbol, args.interval, args.history_limit)
         service = DashboardService(
             futures_database_path=args.futures_db,
             runner_database_path=args.runner_db,
+            runner_config=RunnerConfig(
+                symbol=args.symbol,
+                interval=args.interval,
+                history_limit=args.history_limit,
+            ),
+            public_providers=public_providers,
         )
         server = DashboardHTTPServer((args.host, args.port), service)
     except Exception as exc:
