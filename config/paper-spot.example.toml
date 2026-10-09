@@ -1,11 +1,12 @@
-# Paper-mode declaration only. The paper engine is intentionally not implemented
-# until Phase 3, Step 3. This file is validated but does not place orders.
+# Paper-mode declaration for the offline Spot paper engine. This file is
+# validated only by the CLI; it never places exchange orders.
 
 [run]
 mode = "paper"
 instrument = "spot"
 symbol = "BTC/USDT"
-# Step 3 will define the public read-only adapter and its safety checks.
+# The public connector is read-only and must be wired explicitly by Python
+# code before the Spot paper engine can accept orders.
 market_data_source = "public_read_only"
 
 [safety]

@@ -7,12 +7,14 @@ the market-data safety layer. Phase 4, Step 4 adds an opt-in public Binance
 Spot connector for completed OHLCV candles.
 
 The current code validates `backtest` and `paper` declarations, normalizes
-local market-data events, validates public Binance klines, detects unsafe
-conditions, and blocks new simulated positions when data is not safe.
+local market-data events, validates public Binance klines, and provides a
+CPU-only Spot paper wallet with deterministic fills, Decimal accounting, fees,
+risk checks, and an auditable ledger.
 
-It does **not** run a strategy, simulate a fill, maintain a portfolio, place an
-order, or access an account. The connector is not called automatically by the
-CLI or Paper configuration.
+It does **not** run a strategy, submit an exchange order, access an account, or
+provide live trading. The Binance connector and paper engine are not called
+automatically by the CLI or configuration validator; callers opt into the
+Python interfaces documented in [spot-paper-engine.md](spot-paper-engine.md).
 
 ## Requirements
 
@@ -80,6 +82,14 @@ objects. The final in-progress candle is omitted, and malformed or unsafe
 responses raise typed errors. It does not retry silently. See
 [Binance Spot connector](binance-spot-connector.md) for the exact timestamp,
 rate-limit, error, and recovery assumptions.
+
+## Optional Spot paper execution
+
+The offline paper engine is documented in
+[Spot paper-trading engine](spot-paper-engine.md). It consumes explicitly
+supplied prices and validated market-data health, starts a new Spot simulation
+with 1,000 USDT by default, and never calls Binance for order execution. It
+keeps Spot balances separate from the declared Perpetual Futures configuration.
 
 ## Modes and safety boundary
 

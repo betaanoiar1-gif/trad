@@ -6,7 +6,8 @@ The Step 2 foundation has **no third-party runtime dependencies**. It uses
 Python 3.11 or newer and the standard library only:
 
 - `tomllib` for TOML parsing
-- `dataclasses`, `enum`, `pathlib`, and `typing` for the configuration model
+- `dataclasses`, `decimal`, `enum`, `pathlib`, and `typing` for validated
+  configuration and Spot accounting models
 - `argparse` and `json` for the validation command
 - `unittest` for the test suite
 
@@ -14,9 +15,10 @@ Python and its standard library are distributed under the Python Software
 Foundation License; the applicable text is documented by Python at
 <https://docs.python.org/3/license.html>.
 
-The project declares `dependencies = []` in `pyproject.toml`. No AI service,
-exchange SDK, paid API, hosted database, SaaS service, or cloud resource is
-required.
+The project declares `dependencies = []` in `pyproject.toml`. The Section 1
+Spot paper engine uses `decimal.Decimal` from the standard library for all
+financial arithmetic. No AI service, exchange SDK, paid API, hosted database,
+SaaS service, or cloud resource is required.
 
 ## Optional packaging tool
 

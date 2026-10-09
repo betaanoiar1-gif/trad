@@ -23,10 +23,23 @@ errors. It omits the current in-progress candle, rejects future or malformed
 data, has deterministic offline coverage, and never accepts private
 credentials.
 
-This checkout still does **not** implement ticker/trade/order-book adapters,
-paper execution, fills, portfolio accounting, risk calculations, persistence,
-or a frontend. No real-trading capability or private API credential path
-exists. Those remain outside Step 4.
+This checkout still does **not** implement ticker/trade/order-book exchange
+adapters, Perpetual Futures accounting, persistence, strategy execution, or a
+frontend. No real-trading capability or private API credential path exists.
+The public Binance connector remains read-only and the paper engine never
+submits exchange orders.
+
+## Section 1 status
+
+**Complete: Spot paper-trading engine.**
+
+`SpotPaperEngine` provides a default 1,000 USDT simulation wallet, Decimal-based
+Spot balances, reservations, BUY/SELL accounting, configurable fees, explicit
+order and fill lifecycles, an auditable ledger, deterministic execution,
+portfolio valuation, and fail-closed risk checks integrated with the existing
+market-data safety monitor. See
+[`docs/spot-paper-engine.md`](docs/spot-paper-engine.md) for the actual Python
+interfaces and policies.
 
 ## Safety boundary
 
@@ -70,6 +83,7 @@ An optional editable installation is documented in
 ## Documentation
 
 - [Binance Spot connector](docs/binance-spot-connector.md)
+- [Spot paper-trading engine](docs/spot-paper-engine.md)
 - [Market-data safety](docs/market-data-safety.md)
 - [Zero-cost operating guide](docs/zero-cost-operating-guide.md)
 - [Dependencies and licenses](docs/dependencies-and-licenses.md)

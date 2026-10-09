@@ -3,11 +3,11 @@
 ## Scope
 
 Phase 3, Step 3 adds a local safety layer only. It normalizes and validates
-market-data objects and gives future Paper Trading code a fail-closed decision
-for opening new simulated positions. Phase 4, Step 4 adds a separate,
-read-only Binance Spot OHLCV connector that feeds the existing models. Neither
-layer uses private credentials, submits orders, simulates fills, or maintains
-an account.
+market-data objects and gives paper code a fail-closed decision for opening
+new simulated positions. Phase 4, Step 4 adds a separate, read-only Binance
+Spot OHLCV connector that feeds the existing models. Section 1 adds a Spot
+paper engine that consumes the monitor's decision but never submits exchange
+orders or accesses an account.
 
 ## Normalized models
 
@@ -90,13 +90,13 @@ The monitor stores `last_ordering_time` separately from
 `latest_timestamp` retained as a compatibility alias).
 
 `MarketDataSafetyMonitor.can_open_new_positions(now)` is the boolean guard.
-Future Paper Trading code must call it before opening a new simulated position;
-`require_safe_for_new_position(now)` is the hard-guard variant that raises
-`DataSafetyError` when the decision is unsafe. A future adapter that cannot
-construct a model must call `report_invalid_data(...)`, which blocks the
-monitor immediately instead of allowing the previous quote to remain trusted.
-Existing positions are not closed or modified by this layer; it only prevents
-new openings.
+`SpotPaperEngine` calls the equivalent health decision before accepting or
+filling a simulated order. `require_safe_for_new_position(now)` is the hard-
+guard variant that raises `DataSafetyError` when the decision is unsafe. An
+adapter that cannot construct a model must call `report_invalid_data(...)`,
+which blocks the monitor immediately instead of allowing the previous quote to
+remain trusted. Existing positions are not closed or modified by this layer;
+it only prevents new openings.
 
 After a data-integrity failure, the monitor remains blocked. A caller must
 confirm the source/replay recovery boundary, call `reset()`, and ingest fresh
@@ -122,8 +122,8 @@ Still not implemented:
 - WebSocket exchange adapters or automatic reconnect workers
 - private endpoints or API secrets
 - ticker, trade, or order-book exchange adapters
-- order submission or order simulation
-- Spot or Perpetual Futures accounting
-- persistence, UI, or live Paper Trading orchestration
+- Perpetual Futures accounting
+- persistence, UI, or strategy orchestration
+- live Paper Trading orchestration or exchange order submission
 
 Those items remain separate approval-gated steps.
