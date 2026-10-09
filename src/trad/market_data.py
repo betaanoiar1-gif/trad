@@ -7,7 +7,7 @@ from an exchange, submit orders, simulate fills, or maintain an account.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 import math
 from types import MappingProxyType
@@ -65,6 +65,10 @@ class MarketData:
     ``timestamp`` is the source/exchange event timestamp.  ``received_at`` is
     the local ingestion timestamp.  Both must be timezone-aware; they are
     normalized to UTC and a source timestamp after receipt is rejected.
+
+    For ``OHLCV`` specifically, ``timestamp`` is the candle opening time.
+    Candle completion is represented separately by ``close_time`` and is used
+    for freshness and source-lag checks.
     """
 
     symbol: str
@@ -85,7 +89,13 @@ class MarketData:
 
 @dataclass(frozen=True, kw_only=True)
 class OHLCV(MarketData):
-    """A closed or replayable candle identified by its opening timestamp."""
+    """A completed candle with separate open, close, and receipt times.
+
+    ``timestamp`` is retained as the opening-time field for compatibility and
+    is exposed as the read-only ``open_time`` property. ``close_time`` is the
+    exclusive completion boundary: a one-minute candle opened at 12:00:00
+    completes at 12:01:00. ``received_at`` must not precede that boundary.
+    """
 
     timeframe_seconds: int
     open: float
@@ -93,6 +103,13 @@ class OHLCV(MarketData):
     low: float
     close: float
     volume: float
+    close_time: datetime | None = None
+
+    @property
+    def open_time(self) -> datetime:
+        """The candle opening time; an explicit alias for ``timestamp``."""
+
+        return self.timestamp
 
     def __post_init__(self) -> None:
         super().__post_init__()
@@ -102,10 +119,26 @@ class OHLCV(MarketData):
         low_price = _positive_float(self.low, "low")
         close_price = _positive_float(self.close, "close")
         volume = _non_negative_float(self.volume, "volume")
+        expected_close_time = self.timestamp + timedelta(
+            seconds=self.timeframe_seconds
+        )
+        if self.close_time is None:
+            close_time = expected_close_time
+        else:
+            close_time = _utc_timestamp(self.close_time, "close_time")
+            if close_time != expected_close_time:
+                raise DataValidationError(
+                    "close_time must equal timestamp plus timeframe_seconds"
+                )
+        if self.received_at < close_time:
+            raise DataValidationError(
+                "OHLCV candle is incomplete: received_at precedes close_time"
+            )
         if high_price < max(open_price, close_price):
             raise DataValidationError("high must be at least open and close")
         if low_price > min(open_price, close_price):
             raise DataValidationError("low must be at most open and close")
+        object.__setattr__(self, "close_time", close_time)
         object.__setattr__(self, "open", open_price)
         object.__setattr__(self, "high", high_price)
         object.__setattr__(self, "low", low_price)
@@ -265,10 +298,13 @@ def event_kind(event: object) -> MarketDataKind:
 class MarketDataPolicy:
     """Conservative thresholds used by :class:`MarketDataSafetyMonitor`.
 
-    OHLCV gaps use each candle's ``timeframe_seconds``.  Other event streams
-    only use gap detection when an expected interval is explicitly configured.
-    When an order-book sequence is supplied, it is assumed to be a contiguous
-    update stream and sequence jumps are unsafe until the monitor is reset.
+    OHLCV gaps use each candle's opening ``timestamp`` and
+    ``timeframe_seconds``. OHLCV lag and staleness use ``close_time`` so the
+    candle's construction interval is not counted as delivery delay. Other
+    event streams only use gap detection when an expected interval is
+    explicitly configured. When an order-book sequence is supplied, it is
+    assumed to be a contiguous update stream and sequence jumps are unsafe
+    until the monitor is reset.
     """
 
     max_age_seconds: float = 30.0
@@ -305,7 +341,11 @@ class MarketDataPolicy:
 
 @dataclass(frozen=True)
 class DataHealth:
-    """A point-in-time safety decision for simulated new positions."""
+    """A point-in-time safety decision for simulated new positions.
+
+    ``latest_timestamp`` is the freshness timestamp. For OHLCV it is the
+    candle ``close_time`` rather than the opening ``timestamp``.
+    """
 
     status: DataHealthStatus
     allow_new_positions: bool
@@ -384,23 +424,26 @@ class MarketDataSafetyMonitor:
                 event,
             )
 
-        source_lag = (event.received_at - event.timestamp).total_seconds()
+        freshness_time = _freshness_time(event)
+        source_lag = (event.received_at - freshness_time).total_seconds()
         if source_lag > self.policy.max_source_lag_seconds:
+            lag_name = "candle completion lag" if isinstance(event, OHLCV) else "source lag"
             return self._mark_issue(
                 state,
                 DataHealthStatus.DELAYED,
-                f"source lag {source_lag:.3f}s exceeds "
+                f"{lag_name} {source_lag:.3f}s exceeds "
                 f"{self.policy.max_source_lag_seconds:.3f}s",
                 checked_at,
                 event,
             )
 
-        source_age = (checked_at - event.timestamp).total_seconds()
+        source_age = (checked_at - freshness_time).total_seconds()
         if source_age > self.policy.max_age_seconds:
+            age_name = "candle age since close" if isinstance(event, OHLCV) else "event age"
             return self._mark_issue(
                 state,
                 DataHealthStatus.STALE,
-                f"event age {source_age:.3f}s exceeds "
+                f"{age_name} {source_age:.3f}s exceeds "
                 f"{self.policy.max_age_seconds:.3f}s",
                 checked_at,
                 event,
@@ -433,7 +476,7 @@ class MarketDataSafetyMonitor:
         fingerprint = _fingerprint(event, kind)
         if state.last_timestamp != event.timestamp:
             state.same_timestamp_ids.clear()
-        state.latest_timestamp = event.timestamp
+        state.latest_timestamp = freshness_time
         state.latest_received_at = event.received_at
         state.last_timestamp = event.timestamp
         state.last_fingerprint = fingerprint
@@ -514,20 +557,30 @@ class MarketDataSafetyMonitor:
                 )
             age = (checked_at - state.latest_timestamp).total_seconds()
             if age > self.policy.max_age_seconds:
+                age_name = (
+                    "latest candle age since close"
+                    if state.kind is MarketDataKind.OHLCV
+                    else "latest event age"
+                )
                 return self._state_health(
                     state,
                     checked_at,
                     status=DataHealthStatus.STALE,
-                    reason=f"latest event age {age:.3f}s exceeds "
+                    reason=f"{age_name} {age:.3f}s exceeds "
                     f"{self.policy.max_age_seconds:.3f}s",
                 )
             lag = (state.latest_received_at - state.latest_timestamp).total_seconds()
             if lag > self.policy.max_source_lag_seconds:
+                lag_name = (
+                    "latest candle completion lag"
+                    if state.kind is MarketDataKind.OHLCV
+                    else "latest source lag"
+                )
                 return self._state_health(
                     state,
                     checked_at,
                     status=DataHealthStatus.DELAYED,
-                    reason=f"latest source lag {lag:.3f}s exceeds "
+                    reason=f"{lag_name} {lag:.3f}s exceeds "
                     f"{self.policy.max_source_lag_seconds:.3f}s",
                 )
 
@@ -642,7 +695,7 @@ class MarketDataSafetyMonitor:
     ) -> DataHealth:
         state.status = status
         state.reason = reason
-        state.latest_timestamp = event.timestamp
+        state.latest_timestamp = _freshness_time(event)
         state.latest_received_at = event.received_at
         return self.health(checked_at)
 
@@ -765,6 +818,15 @@ def _stream_key(event: MarketData, kind: MarketDataKind) -> str:
     return f"{kind.value}:{event.symbol}"
 
 
+def _freshness_time(event: MarketData) -> datetime:
+    """Return the timestamp that should drive lag and staleness checks."""
+
+    if isinstance(event, OHLCV):
+        assert event.close_time is not None
+        return event.close_time
+    return event.timestamp
+
+
 def _expected_interval(
     event: MarketData,
     kind: MarketDataKind,
@@ -780,6 +842,7 @@ def _fingerprint(event: MarketData, kind: MarketDataKind) -> tuple[Any, ...]:
     if isinstance(event, OHLCV):
         return base + (
             event.timeframe_seconds,
+            event.close_time,
             event.open,
             event.high,
             event.low,

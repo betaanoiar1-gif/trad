@@ -30,13 +30,22 @@ UTC = timezone.utc
 BASE = datetime(2026, 1, 1, tzinfo=UTC)
 
 
-def candle(offset_seconds: int, *, close: float = 101.0) -> OHLCV:
-    timestamp = BASE + timedelta(seconds=offset_seconds)
+def candle(
+    offset_seconds: int,
+    *,
+    close: float = 101.0,
+    timeframe_seconds: int = 60,
+    receive_delay_seconds: int = 0,
+) -> OHLCV:
+    open_time = BASE + timedelta(seconds=offset_seconds)
+    close_time = open_time + timedelta(seconds=timeframe_seconds)
+    received_at = close_time + timedelta(seconds=receive_delay_seconds)
     return OHLCV(
         symbol="BTC/USDT",
-        timestamp=timestamp,
-        received_at=timestamp,
-        timeframe_seconds=60,
+        timestamp=open_time,
+        close_time=close_time,
+        received_at=received_at,
+        timeframe_seconds=timeframe_seconds,
         open=100.0,
         high=max(101.0, close),
         low=min(99.0, close),
@@ -106,7 +115,8 @@ class MarketDataModelTests(unittest.TestCase):
             OHLCV(
                 symbol="BTC/USDT",
                 timestamp=BASE,
-                received_at=BASE,
+                close_time=BASE + timedelta(seconds=60),
+                received_at=BASE + timedelta(seconds=60),
                 timeframe_seconds=60,
                 open=100,
                 high=99,
@@ -154,7 +164,8 @@ class MarketDataModelTests(unittest.TestCase):
             OHLCV(
                 symbol="BTC/USDT",
                 timestamp=BASE.replace(tzinfo=None),
-                received_at=BASE,
+                close_time=BASE + timedelta(seconds=60),
+                received_at=BASE + timedelta(seconds=60),
                 timeframe_seconds=60,
                 open=100,
                 high=101,
@@ -192,21 +203,74 @@ class MarketDataSafetyMonitorTests(unittest.TestCase):
         )
         self.assertTrue(first[-1].allow_new_positions)
 
+    def test_completed_one_and_five_minute_candles_use_close_time(self) -> None:
+        one_minute = candle(
+            0,
+            timeframe_seconds=60,
+            receive_delay_seconds=5,
+        )
+        five_minute = candle(
+            0,
+            timeframe_seconds=300,
+            receive_delay_seconds=5,
+        )
+
+        one_health = MarketDataSafetyMonitor(self.policy()).ingest(
+            one_minute,
+            now=one_minute.received_at,
+        )
+        five_health = MarketDataSafetyMonitor(self.policy()).ingest(
+            five_minute,
+            now=five_minute.received_at,
+        )
+
+        self.assertEqual(one_minute.open_time, BASE)
+        self.assertEqual(one_minute.close_time, BASE + timedelta(seconds=60))
+        self.assertEqual(one_health.status, DataHealthStatus.SAFE)
+        self.assertTrue(one_health.allow_new_positions)
+        self.assertEqual(five_minute.close_time, BASE + timedelta(seconds=300))
+        self.assertEqual(five_health.status, DataHealthStatus.SAFE)
+        self.assertTrue(five_health.allow_new_positions)
+
+    def test_incomplete_late_and_old_candles_are_rejected_or_blocked(self) -> None:
+        with self.assertRaisesRegex(DataValidationError, "incomplete"):
+            candle(0, timeframe_seconds=60, receive_delay_seconds=-1)
+
+        late = candle(0, timeframe_seconds=60, receive_delay_seconds=11)
+        late_health = MarketDataSafetyMonitor(self.policy()).ingest(
+            late,
+            now=late.received_at,
+        )
+        self.assertEqual(late_health.status, DataHealthStatus.DELAYED)
+        self.assertFalse(late_health.allow_new_positions)
+
+        old = candle(0, timeframe_seconds=300, receive_delay_seconds=5)
+        old_monitor = MarketDataSafetyMonitor(self.policy())
+        old_monitor.ingest(old, now=old.received_at)
+        assert old.close_time is not None
+        old_health = old_monitor.health(old.close_time + timedelta(seconds=31))
+        self.assertEqual(old_health.status, DataHealthStatus.STALE)
+        self.assertFalse(old_health.allow_new_positions)
+
     def test_stale_data_blocks_new_positions_and_hard_guard(self) -> None:
         monitor = MarketDataSafetyMonitor(self.policy())
-        monitor.ingest(candle(0), now=BASE)
+        first = candle(0)
+        assert first.close_time is not None
+        monitor.ingest(first, now=first.received_at)
+        stale_at = first.close_time + timedelta(seconds=31)
 
-        health = monitor.health(BASE + timedelta(seconds=31))
+        health = monitor.health(stale_at)
 
         self.assertEqual(health.status, DataHealthStatus.STALE)
         self.assertFalse(health.allow_new_positions)
-        self.assertFalse(monitor.can_open_new_positions(BASE + timedelta(seconds=31)))
+        self.assertFalse(monitor.can_open_new_positions(stale_at))
         with self.assertRaises(DataSafetyError):
-            monitor.require_safe_for_new_position(BASE + timedelta(seconds=31))
+            monitor.require_safe_for_new_position(stale_at)
 
     def test_reported_invalid_payload_blocks_new_positions(self) -> None:
         monitor = MarketDataSafetyMonitor(self.policy())
-        monitor.ingest(candle(0), now=BASE)
+        first = candle(0)
+        monitor.ingest(first, now=first.received_at)
 
         health = monitor.report_invalid_data(
             "payload omitted the exchange timestamp",
@@ -224,7 +288,8 @@ class MarketDataSafetyMonitorTests(unittest.TestCase):
         delayed = OHLCV(
             symbol="BTC/USDT",
             timestamp=BASE,
-            received_at=BASE + timedelta(seconds=11),
+            close_time=BASE + timedelta(seconds=60),
+            received_at=BASE + timedelta(seconds=71),
             timeframe_seconds=60,
             open=100,
             high=101,
@@ -240,20 +305,29 @@ class MarketDataSafetyMonitorTests(unittest.TestCase):
 
     def test_duplicate_out_of_order_and_gap_are_blocking(self) -> None:
         duplicate_monitor = MarketDataSafetyMonitor(self.policy(max_age_seconds=120))
-        duplicate_monitor.ingest(candle(0), now=BASE)
-        duplicate_health = duplicate_monitor.ingest(candle(0), now=BASE)
+        duplicate_first = candle(0)
+        duplicate_monitor.ingest(duplicate_first, now=duplicate_first.received_at)
+        duplicate_health = duplicate_monitor.ingest(
+            duplicate_first,
+            now=duplicate_first.received_at,
+        )
         self.assertEqual(duplicate_health.status, DataHealthStatus.DUPLICATE)
         self.assertFalse(duplicate_health.allow_new_positions)
 
         order_monitor = MarketDataSafetyMonitor(self.policy(max_age_seconds=120))
-        order_monitor.ingest(candle(60), now=BASE + timedelta(seconds=60))
-        order_health = order_monitor.ingest(candle(0), now=BASE + timedelta(seconds=60))
+        later = candle(60)
+        earlier = candle(0)
+        order_monitor.ingest(later, now=later.received_at)
+        order_health = order_monitor.ingest(earlier, now=later.received_at)
         self.assertEqual(order_health.status, DataHealthStatus.OUT_OF_ORDER)
 
         gap_monitor = MarketDataSafetyMonitor(self.policy(max_age_seconds=180))
-        gap_monitor.ingest(candle(0), now=BASE)
+        first_gap_candle = candle(0)
+        later_gap_candle = candle(120)
+        gap_monitor.ingest(first_gap_candle, now=first_gap_candle.received_at)
         gap_health = gap_monitor.ingest(
-            candle(120), now=BASE + timedelta(seconds=120)
+            later_gap_candle,
+            now=later_gap_candle.received_at,
         )
         self.assertEqual(gap_health.status, DataHealthStatus.GAP)
         self.assertFalse(gap_health.allow_new_positions)
@@ -349,8 +423,11 @@ class MarketDataSafetyMonitorTests(unittest.TestCase):
         self.assertTrue(healthy.allow_new_positions)
 
         monitor.reset()
-        monitor.ingest(candle(0), now=BASE)
-        self.assertFalse(monitor.can_open_new_positions(BASE))
+        post_reset_candle = candle(0)
+        monitor.ingest(post_reset_candle, now=post_reset_candle.received_at)
+        self.assertFalse(
+            monitor.can_open_new_positions(post_reset_candle.received_at)
+        )
 
 
 if __name__ == "__main__":

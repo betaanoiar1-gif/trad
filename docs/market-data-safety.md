@@ -12,11 +12,28 @@ private credentials, submit orders, simulate fills, or maintain an account.
 All supported events contain:
 
 - `symbol`
-- a timezone-aware source/exchange `timestamp`
+- a timezone-aware source/exchange time
 - a timezone-aware local `received_at` timestamp
 
-Both timestamps are normalized to UTC. A source timestamp after local receipt
-is rejected. The models are immutable after validation.
+All timestamps are normalized to UTC. A source time after local receipt is
+rejected. The models are immutable after validation.
+
+### OHLCV time semantics
+
+For `OHLCV`:
+
+- `timestamp` and its explicit read-only alias `open_time` are the candle
+  opening time.
+- `close_time` is the exclusive completion boundary and must equal
+  `open_time + timeframe_seconds`.
+- `received_at` is the local time at which the completed candle arrived.
+- `received_at < close_time` is rejected as an incomplete candle.
+- source lag is `received_at - close_time`, not `received_at - open_time`.
+- staleness is `now - close_time`, not `now - open_time`.
+- ordering and OHLCV gap detection still use `open_time`.
+
+This prevents the one-minute or five-minute candle construction interval from
+being incorrectly counted as delivery lag or staleness.
 
 The supported models are:
 
@@ -37,9 +54,9 @@ raise `DataValidationError` before they reach the safety monitor.
 
 | Check | Default behavior |
 | --- | --- |
-| Maximum source age | 30 seconds |
-| Maximum source-to-receipt lag | 10 seconds |
-| OHLCV gap interval | Each candle's `timeframe_seconds` |
+| Maximum freshness age after completion | 30 seconds |
+| Maximum source-to-receipt/completion lag | 10 seconds |
+| OHLCV gap interval | Each candle's `timeframe_seconds` using opening time |
 | Other stream gaps | Only when an expected interval is explicitly configured |
 | Order-book sequence | If supplied, sequence numbers are assumed contiguous |
 | Required streams | None by default; callers may require specific kinds |
