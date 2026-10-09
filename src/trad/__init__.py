@@ -14,6 +14,17 @@ from .config import (
     SpotConfig,
     load_config,
 )
+from .binance_spot import (
+    BinanceSpotAPIError,
+    BinanceSpotConnectorError,
+    BinanceSpotConnectorSettings,
+    BinanceSpotDataError,
+    BinanceSpotHTTPError,
+    BinanceSpotPublicConnector,
+    BinanceSpotRequestError,
+    BinanceSpotResponseError,
+    BinanceSpotTransportError,
+)
 from .market_data import (
     BidAsk,
     DataHealth,
@@ -36,6 +47,15 @@ from .market_data import (
 
 __all__ = [
     "ConfigurationError",
+    "BinanceSpotAPIError",
+    "BinanceSpotConnectorError",
+    "BinanceSpotConnectorSettings",
+    "BinanceSpotDataError",
+    "BinanceSpotHTTPError",
+    "BinanceSpotPublicConnector",
+    "BinanceSpotRequestError",
+    "BinanceSpotResponseError",
+    "BinanceSpotTransportError",
     "Instrument",
     "MarketDataSource",
     "PerpetualFuturesConfig",

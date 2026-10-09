@@ -4,8 +4,10 @@
 
 Phase 3, Step 3 adds a local safety layer only. It normalizes and validates
 market-data objects and gives future Paper Trading code a fail-closed decision
-for opening new simulated positions. It does not fetch from an exchange, use
-private credentials, submit orders, simulate fills, or maintain an account.
+for opening new simulated positions. Phase 4 Prompt 1 adds a separate,
+read-only Binance Spot OHLCV connector that feeds the existing models. Neither
+layer uses private credentials, submits orders, simulates fills, or maintains
+an account.
 
 ## Normalized models
 
@@ -109,11 +111,17 @@ exchange SDK, or clock unless a deterministic clock callback is supplied. The
 unit tests use it to exercise contiguous candles and to reproduce identical
 health outcomes.
 
-## Not implemented in Step 3
+## Connector and later-step boundary
 
-- HTTP/WebSocket exchange adapters
-- reconnect/backoff workers
+The public Binance Spot OHLCV REST connector is documented separately in
+[binance-spot-connector.md](binance-spot-connector.md). It is opt-in, has no
+private endpoint, and is not an automatic Paper Trading feed.
+
+Still not implemented:
+
+- WebSocket exchange adapters or automatic reconnect workers
 - private endpoints or API secrets
+- ticker, trade, or order-book exchange adapters
 - order submission or order simulation
 - Spot or Perpetual Futures accounting
 - persistence, UI, or live Paper Trading orchestration

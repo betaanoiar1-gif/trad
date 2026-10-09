@@ -11,10 +11,20 @@ and a fail-closed guard for opening new simulated positions. Spot and
 Perpetual Futures configuration remains separate, with 1,000 USDT in each
 separate default wallet.
 
-This checkout still does **not** implement a public exchange adapter, paper
-execution engine, fills, portfolio accounting, risk calculations, persistence,
+## Phase 4 status
+
+**Prompt 1 complete: public Binance Spot OHLCV connector.**
+
+The connector uses only the unauthenticated Binance Spot `/api/v3/klines`
+endpoint, converts completed candles to the existing `OHLCV` model, validates
+UTC timing, close boundaries, ordering, gaps, values, response size, HTTP
+errors, transport failures, and structured API errors. It omits the current
+in-progress candle and never accepts private credentials.
+
+This checkout still does **not** implement ticker/trade/order-book adapters,
+paper execution, fills, portfolio accounting, risk calculations, persistence,
 or a frontend. No real-trading capability or private API credential path
-exists. Step 4 must be approved before those components are added.
+exists. Prompt 2 and later steps must be handled separately.
 
 ## Safety boundary
 
@@ -28,8 +38,9 @@ exists. Step 4 must be approved before those components are added.
   until validated data is received.
 - Stale, delayed, invalid, duplicated, out-of-order, or gapped data keeps the
   position-opening guard closed.
-- The `paper` examples do not connect to an exchange or submit orders. The
-  `public_read_only` value is only a future adapter declaration.
+- The Binance connector is opt-in and does not run automatically from the CLI
+  or Paper configuration.
+- No endpoint for accounts, API keys, or order submission exists.
 
 ## Quick start without installing dependencies
 
@@ -56,11 +67,12 @@ An optional editable installation is documented in
 
 ## Documentation
 
+- [Binance Spot connector](docs/binance-spot-connector.md)
 - [Market-data safety](docs/market-data-safety.md)
 - [Zero-cost operating guide](docs/zero-cost-operating-guide.md)
 - [Dependencies and licenses](docs/dependencies-and-licenses.md)
 
 No paid API, SaaS service, commercial data subscription, cloud resource, GPU,
 AI subscription, private trading credential, or real financial order is needed
-for this foundation. See the dependency document before proposing any future
-package or data source.
+for this foundation or its local tests. See the dependency document before
+proposing any future package or data source.
