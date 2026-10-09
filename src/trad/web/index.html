@@ -79,6 +79,31 @@
       <div id="market-result" class="inline-status empty">No candle recorded by this page yet.</div>
     </section>
 
+    <section class="panel automation-panel">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">AUTOMATION</p>
+          <h2>Strategy selection and paper loop</h2>
+          <p class="help">Historical evaluation is required before start. The runner uses only persisted completed candles, records every candidate including failures, and resumes in a paused state after a restart.</p>
+        </div>
+        <span id="automation-state" class="badge badge-danger">STOPPED</span>
+      </div>
+      <div class="automation-controls">
+        <button id="automation-evaluate" class="button button-secondary" type="button">Evaluate all strategies</button>
+        <button id="automation-start" class="button button-primary" type="button">Start</button>
+        <button id="automation-pause" class="button button-quiet" type="button">Pause</button>
+        <button id="automation-resume" class="button button-secondary" type="button">Resume</button>
+        <button id="automation-stop" class="button button-danger" type="button">Stop</button>
+      </div>
+      <p id="automation-reason" class="health-reason">No strategy selection has been persisted yet.</p>
+      <div id="automation-selected" class="selection-grid"><div class="empty">No accepted strategy. No new automated positions may open.</div></div>
+      <div id="strategy-results" class="table-wrap"><div class="empty">Strategy performance will appear after at least 40 completed candles are recorded per domain.</div></div>
+      <div class="automation-history-grid">
+        <div><h3>Recent decisions</h3><div id="automation-decisions" class="history-box"><div class="empty">No decisions yet.</div></div></div>
+        <div><h3>Errors and recovery</h3><div id="automation-errors" class="history-box"><div class="empty">No runner errors or recovery events yet.</div></div></div>
+      </div>
+    </section>
+
     <section class="overview-grid">
       <article class="engine-card spot-card">
         <div class="section-heading compact">

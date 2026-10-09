@@ -8,8 +8,9 @@ Spot connector for completed OHLCV candles.
 
 The current code validates `backtest` and `paper` declarations, normalizes
 local market-data events, validates public Binance klines, and provides
-CPU-only Spot and Perpetual Futures paper engines plus a dependency-free local
-browser dashboard. Both engines use
+CPU-only Spot and Perpetual Futures paper engines, a causal strategy
+catalogue with offline backtests, a persistent pauseable paper runner, and a
+dependency-free local browser dashboard. Both engines use
 deterministic fills, Decimal accounting, fees, risk checks, and auditable
 ledgers. The Futures engine additionally provides explicit margin, funding,
 liquidation, and transactional local SQLite recovery; see
@@ -45,6 +46,7 @@ PYTHONPATH=src python3 -m trad config/paper-spot.example.toml --json
 PYTHONPATH=src python3 -m trad config/paper-perpetual-futures.example.toml
 PYTHONPATH=src python3 examples/futures_paper_offline.py
 PYTHONPATH=src python3 -m trad.dashboard --host 127.0.0.1 --port 8765
+PYTHONPATH=src python3 -m trad.runner --once
 ```
 
 The optional packaging workflow is:
@@ -114,11 +116,14 @@ network.
 The dependency-free dashboard is documented in
 [dashboard.md](dashboard.md). Start it with
 `PYTHONPATH=src python3 -m trad.dashboard`; it serves
-`http://127.0.0.1:8765/` by default, binds only to localhost, and stores only
-Futures state in the ignored local `var/futures-dashboard.sqlite3` file. It
-uses explicit candle and execution inputs and never contacts a live exchange.
+`http://127.0.0.1:8765/` by default, binds only to localhost, and stores
+Futures accounting plus the separate automation journal in ignored local
+`var/` SQLite files. It uses explicit candle and execution inputs and never
+contacts a live exchange unless the separate public-data runner is started.
 The dashboard tests use a local ephemeral HTTP server and do not require a
-browser driver or network access.
+browser driver or network access. Strategy selection and runner recovery are
+also deterministic offline tests; the bounded `trad-runner --once` command
+uses only public read-only kline endpoints when explicitly run.
 
 ## Modes and safety boundary
 

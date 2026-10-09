@@ -93,6 +93,45 @@ from .futures_paper import (
     FuturesRiskLimits,
     FuturesValidationError,
 )
+from .binance_futures import (
+    BinanceFuturesConnectorSettings,
+    BinanceFuturesPublicConnector,
+)
+from .backtest import (
+    BacktestConfig,
+    BacktestError,
+    BacktestMetrics,
+    BacktestResult,
+    BacktestTrade,
+    InstrumentMode,
+    SelectionResult,
+    evaluate_strategy,
+    select_strategy,
+    validate_historical_candles,
+)
+from .strategies import (
+    DEFAULT_STRATEGY_REGISTRY,
+    SignalAction,
+    StrategyContext,
+    StrategyDefinition,
+    StrategyError,
+    StrategyRegistry,
+    StrategySignal,
+    bollinger_bands,
+    discover_strategies,
+    ema,
+    macd,
+    rsi,
+    sma,
+)
+from .autonomous import (
+    AutonomousPaperRunner,
+    RunJournal,
+    RunnerConfig,
+    RunnerError,
+    RunnerPersistenceError,
+    RunnerState,
+)
 from .market_data import (
     BidAsk,
     DataHealth,
@@ -115,6 +154,8 @@ from .market_data import (
 
 __all__ = [
     "ConfigurationError",
+    "BinanceFuturesConnectorSettings",
+    "BinanceFuturesPublicConnector",
     "BinanceSpotAPIError",
     "BinanceSpotConnectorError",
     "BinanceSpotConnectorSettings",
@@ -219,6 +260,35 @@ __all__ = [
     "Trade",
     "TradeSide",
     "event_kind",
+    "BacktestConfig",
+    "BacktestError",
+    "BacktestMetrics",
+    "BacktestResult",
+    "BacktestTrade",
+    "InstrumentMode",
+    "SelectionResult",
+    "evaluate_strategy",
+    "select_strategy",
+    "validate_historical_candles",
+    "DEFAULT_STRATEGY_REGISTRY",
+    "SignalAction",
+    "StrategyContext",
+    "StrategyDefinition",
+    "StrategyError",
+    "StrategyRegistry",
+    "StrategySignal",
+    "bollinger_bands",
+    "discover_strategies",
+    "ema",
+    "macd",
+    "rsi",
+    "sma",
+    "AutonomousPaperRunner",
+    "RunJournal",
+    "RunnerConfig",
+    "RunnerError",
+    "RunnerPersistenceError",
+    "RunnerState",
 ]
 
 

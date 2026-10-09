@@ -32,4 +32,4 @@ jobs:
       - name: Build package and verify dashboard assets
         run: |
           python -m pip wheel . --no-deps --no-build-isolation -w /tmp/trad-wheel
-          unzip -l /tmp/trad-wheel/trad-*.whl | grep -E 'trad/(dashboard.py|web/(index.html|app.js|styles.css))'
+          unzip -l /tmp/trad-wheel/trad-*.whl | grep -E 'trad/(autonomous.py|backtest.py|runner.py|strategies.py|dashboard.py|web/(index.html|app.js|styles.css))'

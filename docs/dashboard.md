@@ -16,6 +16,9 @@ The service owns two separate engine instances:
 - Futures uses the existing `FuturesPaperEngine`, with a local SQLite file for
   durable configuration, accounting snapshots, audit history, recovery, and
   reconciliation.
+- The autonomous runner uses a separate SQLite journal for strategy selections,
+  every candidate result, market events, decisions, operations, errors, and
+  recovery/state transitions. It never shares Spot and Futures accounting.
 
 No route fetches market data, accesses credentials, calls a private endpoint,
 or submits an exchange order. The browser never receives a filesystem path or
@@ -43,15 +46,17 @@ The default URL is:
 http://127.0.0.1:8765/
 ```
 
-The default server bind is localhost and the default durable Futures database
-is `var/futures-dashboard.sqlite3`. The `var/` directory and SQLite files are
-ignored by Git. To choose another local file or port:
+The default server bind is localhost. The durable files are
+`var/futures-dashboard.sqlite3` for Futures accounting and
+`var/trad-runner.sqlite3` for strategy/run history. The `var/` directory and
+SQLite files are ignored by Git. To choose another local file or port:
 
 ```bash
 PYTHONPATH=src python3 -m trad.dashboard \
   --host 127.0.0.1 \
   --port 8765 \
-  --futures-db var/my-futures-dashboard.sqlite3
+  --futures-db var/my-futures-dashboard.sqlite3 \
+  --runner-db var/my-trad-runner.sqlite3
 ```
 
 A controlled preview may start the process with `--host 0.0.0.0`; that is an
@@ -94,6 +99,15 @@ API requires idempotency keys for order, fill, and funding requests. Backend
 confirmation is required before the page reports success. Rejected orders are
 shown as rejected operations rather than successes.
 
+The **Strategy selection and paper loop** panel evaluates all eight built-in
+catalogue entries—EMA crossover, RSI, MACD, Bollinger Bands, breakout,
+momentum, trend following, and mean reversion—on the candles already persisted
+for each domain. It displays train/validation return, fees, drawdown, trades,
+acceptance, and failure reasons. Start and resume are denied when no candidate
+passes; the selected name and reason are stored. A restart converts a previous
+running state to paused and records a recovery event instead of silently
+continuing.
+
 ## API surface
 
 The JSON API is local and relative to the dashboard origin:
@@ -102,6 +116,7 @@ The JSON API is local and relative to the dashboard origin:
 | --- | --- |
 | `GET /api/state` | Complete browser-safe Spot/Futures snapshot |
 | `GET /api/health` | Simulation warning and both market-data health states |
+| `GET /api/automation/state` | Current runner state, selections, decisions, errors, and recovery |
 | `POST /api/market-data` | Validate and record one explicit completed OHLCV candle |
 | `POST /api/market-data/reset` | Reset both safety monitors with `{"confirm":true}` |
 | `POST /api/spot/orders` | Submit a Spot order with a client id |
@@ -112,6 +127,11 @@ The JSON API is local and relative to the dashboard origin:
 | `POST /api/futures/orders/{id}/cancel` | Cancel a Futures accepted or partial order |
 | `POST /api/futures/mark` | Apply an explicit Futures mark and report liquidation |
 | `POST /api/futures/funding` | Apply a caller-supplied funding rate and payment id |
+| `POST /api/automation/evaluate` | Evaluate every registered strategy from persisted candles |
+| `POST /api/automation/start` | Start only after accepted selections exist; requires confirmation |
+| `POST /api/automation/pause` | Safely pause new automated decisions |
+| `POST /api/automation/resume` | Resume an accepted selection; requires confirmation |
+| `POST /api/automation/stop` | Stop the loop without resetting paper accounts; requires confirmation |
 
 Invalid JSON, missing fields, unsupported operations, unsafe data, risk
 rejections, and engine failures receive JSON error responses. Tracebacks,
@@ -128,10 +148,18 @@ available. A fresh process deliberately has no trusted market-data monitor
 state, so a recovered position is visible but new operations remain blocked
 until a fresh validated event is recorded.
 
-Spot persistence was not added to Section 3: the existing Spot engine is
-in-memory and the dashboard labels it that way. Spot orders, fills, and
-balances therefore reset with the dashboard process. This is intentional and
-avoids inventing a second accounting or storage implementation.
+The runner journal separately recovers the Spot engine's paper accounting
+snapshot, selected strategy metadata, and idempotency history. It deliberately
+starts `paused` after a previously running process and requires fresh validated
+market data before any resumed decision. Corrupted journal/accounting state is
+reported as unavailable rather than overwritten.
+
+The manual dashboard facade keeps the existing Spot engine in-memory, but
+its autonomous runner persists a validated Spot accounting snapshot and
+idempotency history in the separate run journal. A restart recovers those
+paper balances and still leaves the safety monitor fail-closed until fresh
+validated data arrives. The Futures engine continues to use its own durable
+SQLite accounting store; the two persistence domains remain separate.
 
 The browser is not a strategy runner, live trading terminal, performance
 promise, or exchange simulator. It does not model network latency, order-book

@@ -149,8 +149,37 @@
       <div class="history-box"><h3>Futures audit</h3>${list(audits, (item) => `<li><strong>${value(item.event_type)}</strong> · ${value(item.event_id)}</li>`, "No Futures audit events yet.")}</div>`;
   }
 
+  function renderAutomation(automation) {
+    const state = automation || {};
+    const current = String(state.state || "unavailable");
+    const badge = $("#automation-state");
+    badge.className = `badge ${current === "running" ? "badge-success" : current === "blocked" ? "badge-danger" : "badge-warning"}`;
+    badge.textContent = current.replaceAll("_", " ").toUpperCase();
+    $("#automation-reason").textContent = state.blocked_reason || (current === "running" ? "Paper loop is active and waits for completed validated candles." : "Evaluate accepted strategies before starting the paper loop.");
+    const selected = state.selected || {};
+    const selectionNode = $("#automation-selected");
+    const domains = ["spot", "futures"];
+    selectionNode.innerHTML = domains.map((domain) => {
+      const name = selected[domain];
+      return `<div class="selection-card"><strong>${escapeHtml(domain.toUpperCase())}</strong><br><span class="${name ? "selected" : "negative"}">${name ? `selected: ${value(name)}` : "NO ACCEPTED STRATEGY — BLOCKED"}</span></div>`;
+    }).join("");
+    const rows = [];
+    Object.entries(state.selections || {}).forEach(([domain, selection]) => {
+      (selection.results || []).forEach((result) => {
+        const metrics = result.validation || {};
+        rows.push(`<tr><td>${value(domain)}</td><td><strong>${value(result.strategy_display_name || result.strategy_name)}</strong><br><span class="muted">${value(result.strategy_name)}</span></td><td class="${result.accepted ? "selected" : "strategy-failed"}">${value(result.status)}</td><td>${result.accepted ? "accepted" : "failed"}</td><td class="num">${value(metrics.return_pct)}</td><td class="num">${value(metrics.max_drawdown)}</td><td class="num">${value(metrics.trades, "0")}</td><td>${value((result.failure_reasons || []).join("; "))}</td></tr>`);
+      });
+    });
+    $("#strategy-results").innerHTML = rows.length ? `<table><thead><tr><th>Domain</th><th>Strategy</th><th>Status</th><th>Eligible</th><th>Validation return</th><th>Drawdown</th><th>Trades</th><th>Failure reason</th></tr></thead><tbody>${rows.join("")}</tbody></table>` : '<div class="empty">No strategy evaluation has been persisted yet.</div>';
+    const decisions = state.recent_decisions || [];
+    $("#automation-decisions").innerHTML = decisions.length ? `<ul>${decisions.map((item) => `<li><strong>${value(item.domain)}</strong> ${value(item.action)} · ${value(item.strategy_name)}<br><span class="muted">${value(item.reason)}</span></li>`).join("")}</ul>` : '<div class="empty">No decisions yet.</div>';
+    const errors = [...(state.recent_errors || []).map((item) => ({...item, kind: "error"})), ...(state.recent_recoveries || []).map((item) => ({...item, kind: "recovery"}))].slice(-12).reverse();
+    $("#automation-errors").innerHTML = errors.length ? `<ul>${errors.map((item) => `<li><strong>${value(item.kind === "error" ? item.category : item.event_type)}</strong> · ${value(item.message || (item.payload || {}).reason)}</li>`).join("")}</ul>` : '<div class="empty">No runner errors or recovery events yet.</div>';
+  }
+
   function render(state) {
     latestState = state;
+    renderAutomation(state.automation);
     $("#connection-status").textContent = "Connected · state is authoritative backend data";
     $("#generated-at").textContent = `last refresh ${value(state.generated_at)}`;
     $("#global-alert").textContent = state.warning || "Paper trading only. No real orders are submitted.";
@@ -231,6 +260,31 @@
       await refresh();
     } finally { busy = false; }
   }
+
+  async function automationRequest(path, payload, message) {
+    if (busy) return;
+    busy = true;
+    try {
+      await request(path, {method: "POST", body: JSON.stringify(payload || {})});
+      showToast(message, "success");
+      await refresh();
+    } catch (error) {
+      showToast(error.message, "error");
+      await refresh();
+    } finally { busy = false; }
+  }
+
+  $("#automation-evaluate").addEventListener("click", () => automationRequest("/api/automation/evaluate", {domain: "both"}, "All registered strategies evaluated; no orders were started."));
+  $("#automation-start").addEventListener("click", () => {
+    if (window.confirm("Start paper automation? Only strategies that passed validation may open paper positions.")) automationRequest("/api/automation/start", {confirm: true}, "Paper automation start recorded by the backend.");
+  });
+  $("#automation-pause").addEventListener("click", () => automationRequest("/api/automation/pause", {}, "Paper automation paused safely."));
+  $("#automation-resume").addEventListener("click", () => {
+    if (window.confirm("Resume paper automation? Fresh validated data is still required.")) automationRequest("/api/automation/resume", {confirm: true}, "Paper automation resumed by the backend.");
+  });
+  $("#automation-stop").addEventListener("click", () => {
+    if (window.confirm("Stop paper automation? Existing paper positions are not silently reset.")) automationRequest("/api/automation/stop", {confirm: true}, "Paper automation stopped safely.");
+  });
 
   $("#market-form").addEventListener("submit", (event) => {
     event.preventDefault();

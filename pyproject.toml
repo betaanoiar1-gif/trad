@@ -12,6 +12,7 @@ dependencies = []
 [project.scripts]
 trad-config = "trad.cli:main"
 trad-dashboard = "trad.dashboard:main"
+trad-runner = "trad.runner:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

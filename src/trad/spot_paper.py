@@ -977,6 +977,167 @@ class SpotPaperEngine:
                 description=f"initialized {asset} available balance",
             )
 
+    def state_snapshot(self) -> dict[str, Any]:
+        """Return a validated accounting snapshot for an offline paper journal.
+
+        This is intentionally an engine-state API, not an exchange account API.
+        A caller can serialize the returned dataclasses and later use
+        :meth:`restore_state` to recover the same paper wallet without replaying
+        old market data through the current safety gate.
+        """
+
+        return {
+            "version": 1,
+            "symbol": self.symbol_rules.symbol,
+            "balances": dict(self._balances),
+            "orders": tuple(self._orders.values()),
+            "client_orders": dict(self._client_orders),
+            "fills": tuple(self._fills.values()),
+            "reservations": dict(self._reservations),
+            "ledger": tuple(self._ledger),
+            "next_order_number": self._next_order_number,
+        }
+
+    def restore_state(self, snapshot: Mapping[str, Any]) -> None:
+        """Restore an accounting snapshot previously produced by this engine.
+
+        Recovery never marks the safety monitor healthy.  Fresh validated market
+        data is still required before any new order can be accepted.
+        """
+
+        if not isinstance(snapshot, Mapping) or snapshot.get("version") != 1:
+            raise AccountingError("Spot state snapshot version is unsupported")
+        if snapshot.get("symbol") != self.symbol_rules.symbol:
+            raise AccountingError("Spot state snapshot symbol does not match the engine")
+        def mapping(value: Any, field_name: str) -> Mapping[str, Any]:
+            if not isinstance(value, Mapping):
+                raise AccountingError(f"Spot snapshot {field_name} must be an object")
+            return value
+
+        def timestamp(value: Any, field_name: str) -> datetime:
+            if isinstance(value, datetime):
+                return _utc(value, field_name)
+            if not isinstance(value, str):
+                raise AccountingError(f"Spot snapshot {field_name} timestamp is invalid")
+            try:
+                return _utc(datetime.fromisoformat(value), field_name)
+            except ValueError as exc:
+                raise AccountingError(f"Spot snapshot {field_name} timestamp is invalid") from exc
+
+        def order_value(value: Any) -> Order:
+            if isinstance(value, Order):
+                return value
+            item = mapping(value, "order")
+            return Order(
+                order_id=item["order_id"],
+                symbol=item["symbol"],
+                side=item["side"],
+                quantity=item["quantity"],
+                price=item["price"],
+                status=item["status"],
+                created_at=timestamp(item["created_at"], "order created_at"),
+                updated_at=timestamp(item["updated_at"], "order updated_at"),
+                client_order_id=item.get("client_order_id"),
+                filled_quantity=item.get("filled_quantity", ZERO),
+                average_fill_price=item.get("average_fill_price"),
+                fee_paid=item.get("fee_paid", ZERO),
+                fee_currency=item.get("fee_currency", FeeCurrency.QUOTE),
+                rejection_code=item.get("rejection_code"),
+                rejection_reason=item.get("rejection_reason"),
+                fill_ids=tuple(item.get("fill_ids", ())),
+            )
+
+        def fill_value(value: Any) -> Fill:
+            if isinstance(value, Fill):
+                return value
+            item = mapping(value, "fill")
+            return Fill(
+                fill_id=item["fill_id"],
+                order_id=item["order_id"],
+                symbol=item["symbol"],
+                side=item["side"],
+                quantity=item["quantity"],
+                price=item["price"],
+                gross_quote=item["gross_quote"],
+                fee_amount=item["fee_amount"],
+                fee_currency=item["fee_currency"],
+                base_delta=item["base_delta"],
+                quote_delta=item["quote_delta"],
+                executed_at=timestamp(item["executed_at"], "fill executed_at"),
+            )
+
+        def ledger_value(value: Any) -> LedgerEntry:
+            if isinstance(value, LedgerEntry):
+                return value
+            item = mapping(value, "ledger entry")
+            postings = tuple(
+                posting if isinstance(posting, LedgerPosting) else LedgerPosting(
+                    asset=posting["asset"],
+                    available_delta=posting.get("available_delta", ZERO),
+                    reserved_delta=posting.get("reserved_delta", ZERO),
+                )
+                for posting in item["postings"]
+            )
+            return LedgerEntry(
+                entry_id=item["entry_id"],
+                entry_type=item["entry_type"],
+                timestamp=timestamp(item["timestamp"], "ledger timestamp"),
+                order_id=item.get("order_id"),
+                fill_id=item.get("fill_id"),
+                postings=postings,
+                description=item["description"],
+            )
+
+        try:
+            balances = {
+                _normalize_asset(asset): value if isinstance(value, _MutableBalance) else _MutableBalance(
+                    _non_negative_decimal(mapping(value, "balance")["available"], f"{asset} available"),
+                    _non_negative_decimal(mapping(value, "balance")["reserved"], f"{asset} reserved"),
+                )
+                for asset, value in dict(snapshot["balances"]).items()
+            }
+            orders = {order.order_id: order for order in (order_value(item) for item in snapshot["orders"])}
+            fills = {fill.fill_id: fill for fill in (fill_value(item) for item in snapshot["fills"])}
+            reservations = {
+                order_id: reservation if isinstance(reservation, _Reservation) else _Reservation(
+                    asset=mapping(reservation, "reservation")["asset"],
+                    amount=mapping(reservation, "reservation")["amount"],
+                )
+                for order_id, reservation in dict(snapshot["reservations"]).items()
+            }
+            ledger = [ledger_value(item) for item in snapshot["ledger"]]
+            client_orders = dict(snapshot["client_orders"])
+            next_order_number = int(snapshot["next_order_number"])
+        except (KeyError, TypeError, ValueError, InvalidOperation) as exc:
+            raise AccountingError("Spot state snapshot is malformed") from exc
+        if next_order_number < 1 or any(not isinstance(item, Order) for item in orders.values()):
+            raise AccountingError("Spot state snapshot orders are malformed")
+        if any(not isinstance(item, Fill) for item in fills.values()):
+            raise AccountingError("Spot state snapshot fills are malformed")
+        if any(not isinstance(item, _Reservation) for item in reservations.values()):
+            raise AccountingError("Spot state snapshot reservations are malformed")
+        if any(not isinstance(item, LedgerEntry) for item in ledger):
+            raise AccountingError("Spot state snapshot ledger is malformed")
+        for client_id, order_id in client_orders.items():
+            if order_id not in orders or orders[order_id].client_order_id != client_id:
+                raise AccountingError("Spot client-order index is inconsistent")
+        for fill in fills.values():
+            if fill.order_id not in orders or fill.fill_id not in orders[fill.order_id].fill_ids:
+                raise AccountingError("Spot fill index is inconsistent")
+        for order_id in reservations:
+            if order_id not in orders or orders[order_id].is_terminal:
+                raise AccountingError("Spot reservation index is inconsistent")
+        self._balances = balances
+        self._orders = orders
+        self._client_orders = client_orders
+        self._fills = fills
+        self._reservations = reservations
+        self._ledger = ledger
+        self._next_order_number = next_order_number
+        report = self.reconcile()
+        if not report.is_consistent:
+            raise AccountingError("Spot state snapshot does not reconcile")
+
     @classmethod
     def from_run_config(
         cls,

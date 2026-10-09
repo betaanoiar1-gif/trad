@@ -23,6 +23,7 @@ from typing import Any, Callable, Mapping
 from urllib.parse import urlsplit
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+from .autonomous import AutonomousPaperRunner, RunnerConfig
 from .futures_paper import (
     FuturesError,
     FuturesOrderStatus,
@@ -71,6 +72,9 @@ class DashboardService:
         spot: SpotPaperEngine | None = None,
         futures: FuturesPaperEngine | None = None,
         futures_database_path: str | Path | None = None,
+        runner: AutonomousPaperRunner | None = None,
+        runner_database_path: str | Path | None = None,
+        runner_config: RunnerConfig | None = None,
         clock: Callable[[], datetime] | None = None,
     ) -> None:
         self._lock = threading.RLock()
@@ -89,6 +93,22 @@ class DashboardService:
                 clock=self._clock,
             )
             self._futures_durable = self.futures.database_path != ":memory:"
+        if runner is not None:
+            self.runner = runner
+        else:
+            if runner_database_path is not None:
+                journal_path = runner_database_path
+            elif self._futures_durable:
+                journal_path = Path(self.futures.database_path).with_name("trad-runner.sqlite3")
+            else:
+                journal_path = ":memory:"
+            self.runner = AutonomousPaperRunner(
+                journal_path=journal_path,
+                spot=self.spot,
+                futures=self.futures,
+                config=runner_config or RunnerConfig(symbol=self.spot.symbol_rules.symbol),
+                clock=self._clock,
+            )
         self._last_prices: dict[str, Decimal] = {}
         self._last_market_events: dict[str, dict[str, Any]] = {}
         self._closed = False
@@ -97,6 +117,7 @@ class DashboardService:
         with self._lock:
             if self._closed:
                 return
+            self.runner.close()
             self.futures.close()
             self._closed = True
 
@@ -109,6 +130,25 @@ class DashboardService:
         if not isinstance(value, datetime) or value.tzinfo is None or value.utcoffset() is None:
             raise DashboardRequestError("dashboard clock must return an aware datetime")
         return value.astimezone(timezone.utc)
+
+    def _begin_manual_operation(self, domain: str, key: str, operation_type: str, payload: Mapping[str, Any]) -> None:
+        try:
+            self.runner.journal.record_operation(domain, key, operation_type, "started", payload)
+        except Exception as exc:
+            raise DashboardPersistenceError("could not journal manual paper operation") from exc
+
+    def _finish_manual_operation(
+        self,
+        domain: str,
+        key: str,
+        status: str,
+        payload: Any,
+        error: str | None = None,
+    ) -> None:
+        try:
+            self.runner.journal.update_operation(domain, key, status, payload, error)
+        except Exception as exc:
+            raise DashboardPersistenceError("could not finalize manual paper operation") from exc
 
     def snapshot(self) -> dict[str, Any]:
         """Return a browser-safe snapshot composed from authoritative engines."""
@@ -163,6 +203,7 @@ class DashboardService:
                 "simulation_only": True,
                 "generated_at": now,
                 "warning": "Paper trading only: no real exchange orders are submitted.",
+                "automation": self.runner.snapshot(),
                 "spot": {
                     "symbol": self.spot.symbol_rules.symbol,
                     "wallet": spot_wallet,
@@ -214,6 +255,7 @@ class DashboardService:
             event = _ohlcv_from_payload(data)
             checked_at = _datetime(data.get("checked_at"), "checked_at")
             results: dict[str, Any] = {}
+            automation: dict[str, Any] = {}
             targets = ("spot", "futures") if domain == "both" else (domain,)
             for target in targets:
                 if target == "spot":
@@ -221,6 +263,10 @@ class DashboardService:
                 else:
                     health = self.futures.record_market_data(event, now=checked_at)
                 results[target] = health
+                try:
+                    automation[target] = self.runner.process_event(target, event, ingest=False)
+                except Exception as exc:
+                    raise DashboardPersistenceError("automation journal could not store the market event") from exc
                 if health.status is DataHealthStatus.SAFE:
                     self._last_prices[target] = Decimal(str(event.close))
                     self._last_market_events[target] = {
@@ -229,7 +275,7 @@ class DashboardService:
                         "close_time": event.close_time,
                         "received_at": event.received_at,
                     }
-            return {"domain": domain, "results": results, "event": event}
+            return {"domain": domain, "results": results, "automation": automation, "event": event}
 
     def reset_market_data(self) -> dict[str, Any]:
         """Reset both safety monitors; fresh validated data is then required."""
@@ -245,31 +291,65 @@ class DashboardService:
             self._ensure_open()
             data = _object(payload, "Spot order request")
             client_order_id = _required_text(data.get("client_order_id"), "client_order_id", max_length=128)
-            return self.spot.submit_order(
-                side=_required_text(data.get("side"), "side"),
-                quantity=_required_decimal(data.get("quantity"), "quantity"),
-                price=_required_decimal(data.get("price"), "price"),
-                client_order_id=client_order_id,
-                now=self._now(),
-            )
+            side = _required_text(data.get("side"), "side")
+            quantity = _required_decimal(data.get("quantity"), "quantity")
+            price = _required_decimal(data.get("price"), "price")
+            key = f"manual:spot:order:{client_order_id}"
+            self._begin_manual_operation("spot", key, "manual_order", {"side": side, "quantity": str(quantity), "price": str(price)})
+            try:
+                result = self.spot.submit_order(
+                    side=side,
+                    quantity=quantity,
+                    price=price,
+                    client_order_id=client_order_id,
+                    now=self._now(),
+                )
+            except Exception as exc:
+                self._finish_manual_operation("spot", key, "failed", {"error": str(exc)}, str(exc))
+                raise
+            status = getattr(result, "status", "accepted")
+            self._finish_manual_operation("spot", key, "rejected" if status is OrderStatus.REJECTED else "accepted", _to_jsonable(result), getattr(result, "rejection_reason", None))
+            self.runner.journal.set_meta("spot_engine_snapshot", _to_jsonable(self.spot.state_snapshot()))
+            return result
 
     def fill_spot_order(self, order_id: str, payload: Mapping[str, Any]) -> Any:
         with self._lock:
             self._ensure_open()
             data = _object(payload, "Spot fill request")
             fill_id = _required_text(data.get("fill_id"), "fill_id", max_length=128)
-            return self.spot.execute_fill(
-                order_id,
-                quantity=_required_decimal(data.get("quantity"), "quantity"),
-                price=_required_decimal(data.get("price"), "price"),
-                fill_id=fill_id,
-                now=self._now(),
-            )
+            quantity = _required_decimal(data.get("quantity"), "quantity")
+            price = _required_decimal(data.get("price"), "price")
+            key = f"manual:spot:fill:{fill_id}"
+            self._begin_manual_operation("spot", key, "manual_fill", {"order_id": order_id, "quantity": str(quantity), "price": str(price)})
+            try:
+                result = self.spot.execute_fill(
+                    order_id,
+                    quantity=quantity,
+                    price=price,
+                    fill_id=fill_id,
+                    now=self._now(),
+                )
+            except Exception as exc:
+                self._finish_manual_operation("spot", key, "failed", {"error": str(exc)}, str(exc))
+                raise
+            status = getattr(result, "status", "filled")
+            self._finish_manual_operation("spot", key, "rejected" if status is OrderStatus.REJECTED else "filled", _to_jsonable(result), getattr(result, "rejection_reason", None))
+            self.runner.journal.set_meta("spot_engine_snapshot", _to_jsonable(self.spot.state_snapshot()))
+            return result
 
     def cancel_spot_order(self, order_id: str) -> Any:
         with self._lock:
             self._ensure_open()
-            return self.spot.cancel_order(order_id, now=self._now())
+            key = f"manual:spot:cancel:{order_id}"
+            self._begin_manual_operation("spot", key, "manual_cancel", {"order_id": order_id})
+            try:
+                result = self.spot.cancel_order(order_id, now=self._now())
+            except Exception as exc:
+                self._finish_manual_operation("spot", key, "failed", {"error": str(exc)}, str(exc))
+                raise
+            self._finish_manual_operation("spot", key, "cancelled", _to_jsonable(result))
+            self.runner.journal.set_meta("spot_engine_snapshot", _to_jsonable(self.spot.state_snapshot()))
+            return result
 
     def submit_futures_order(self, payload: Mapping[str, Any]) -> Any:
         with self._lock:
@@ -332,6 +412,48 @@ class DashboardService:
                 payment_id=_required_text(data.get("payment_id"), "payment_id", max_length=128),
                 now=self._now(),
             )
+
+    def evaluate_automation(self, payload: Mapping[str, Any] | None = None) -> dict[str, Any]:
+        """Evaluate persisted chronological candles without starting orders."""
+
+        with self._lock:
+            self._ensure_open()
+            data = _object(payload or {}, "automation evaluation request")
+            domain = _choice(data.get("domain", "both"), {"spot", "futures", "both"}, "domain")
+            domains = ("spot", "futures") if domain == "both" else (domain,)
+            selections: dict[str, Any] = {}
+            for target in domains:
+                history = self.runner.journal.market_events(target)
+                if len(history) < 40:
+                    raise DashboardRequestError(f"at least 40 persisted {target} candles are required before evaluation")
+                selections[target] = self.runner.evaluate(target, history).as_dict()
+            return {"status": "evaluated", "selections": selections, "runner": self.runner.snapshot()}
+
+    def start_automation(self) -> dict[str, Any]:
+        with self._lock:
+            self._ensure_open()
+            result = self.runner.start()
+            if result["state"] == "blocked":
+                raise DashboardRequestError(result.get("blocked_reason") or "automation is blocked")
+            return result
+
+    def pause_automation(self) -> dict[str, Any]:
+        with self._lock:
+            self._ensure_open()
+            return self.runner.pause()
+
+    def resume_automation(self) -> dict[str, Any]:
+        with self._lock:
+            self._ensure_open()
+            result = self.runner.resume()
+            if result["state"] == "blocked":
+                raise DashboardRequestError(result.get("blocked_reason") or "automation is blocked")
+            return result
+
+    def stop_automation(self) -> dict[str, Any]:
+        with self._lock:
+            self._ensure_open()
+            return self.runner.stop()
 
     def _health_snapshot(self) -> dict[str, Any]:
         now = self._now()
@@ -481,8 +603,11 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
                 self._asset("app.js", "text/javascript; charset=utf-8")
             elif path == "/static/styles.css":
                 self._asset("styles.css", "text/css; charset=utf-8")
-            elif path in {"/api/state", "/api/health"}:
+            elif path in {"/api/state", "/api/health", "/api/automation/state"}:
                 snapshot = self.server.service.snapshot()
+                if path == "/api/automation/state":
+                    self._json(HTTPStatus.OK, {"ok": True, "data": snapshot["automation"]})
+                    return
                 body = snapshot if path == "/api/state" else {
                     "mode": snapshot["mode"],
                     "simulation_only": snapshot["simulation_only"],
@@ -523,6 +648,22 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
                 data = self.server.service.mark_futures(payload)
             elif path == "/api/futures/funding":
                 data = self.server.service.apply_funding(payload)
+            elif path == "/api/automation/evaluate":
+                data = self.server.service.evaluate_automation(payload)
+            elif path == "/api/automation/start":
+                if payload.get("confirm") is not True:
+                    raise DashboardRequestError("automation start requires confirm=true")
+                data = self.server.service.start_automation()
+            elif path == "/api/automation/pause":
+                data = self.server.service.pause_automation()
+            elif path == "/api/automation/resume":
+                if payload.get("confirm") is not True:
+                    raise DashboardRequestError("automation resume requires confirm=true")
+                data = self.server.service.resume_automation()
+            elif path == "/api/automation/stop":
+                if payload.get("confirm") is not True:
+                    raise DashboardRequestError("automation stop requires confirm=true")
+                data = self.server.service.stop_automation()
             else:
                 self._json_error(HTTPStatus.NOT_FOUND, "not_found", "resource not found")
                 return
@@ -614,6 +755,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=DEFAULT_FUTURES_DATABASE,
         help="local Futures SQLite file (default: var/futures-dashboard.sqlite3)",
     )
+    parser.add_argument(
+        "--runner-db",
+        type=Path,
+        default=Path("var/trad-runner.sqlite3"),
+        help="persistent strategy/run journal (default: var/trad-runner.sqlite3)",
+    )
     return parser
 
 
@@ -622,7 +769,10 @@ def main(argv: list[str] | None = None) -> int:
     if not 1 <= args.port <= 65535:
         raise SystemExit("port must be between 1 and 65535")
     try:
-        service = DashboardService(futures_database_path=args.futures_db)
+        service = DashboardService(
+            futures_database_path=args.futures_db,
+            runner_database_path=args.runner_db,
+        )
         server = DashboardHTTPServer((args.host, args.port), service)
     except Exception as exc:
         raise SystemExit(f"dashboard startup failed: {exc}") from exc

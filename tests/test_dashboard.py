@@ -74,6 +74,7 @@ class DashboardHTTPTests(unittest.TestCase):
         self.assertIn("Unavailable", script)
         self.assertIn("No fills yet.", script)
         self.assertIn("showToast(error.message", script)
+        self.assertIn("/api/automation/evaluate", script)
         status, styles = self.request("GET", "/static/styles.css")
         self.assertEqual(status, 200)
         self.assertIn("--cyan", styles)
@@ -87,6 +88,21 @@ class DashboardHTTPTests(unittest.TestCase):
         self.assertEqual(spot_usdt["total"], "1000.00")
         self.assertEqual(data["futures"]["wallet"][0]["total"], "1000.00")
         self.assertFalse(data["futures"]["persistence"]["durable"])
+        self.assertEqual(data["automation"]["state"], "stopped")
+        self.assertFalse(data["automation"]["persistent_journal"])
+        status, automation = self.request("GET", "/api/automation/state")
+        self.assertEqual(status, 200)
+        self.assertEqual(automation["data"]["state"], "stopped")
+
+    def test_automation_start_is_blocked_until_strategy_acceptance(self) -> None:
+        status, response = self.request("POST", "/api/automation/start", {"confirm": True})
+        self.assertEqual(status, 400)
+        self.assertFalse(response["ok"])
+        self.assertIn("accepted strategy", response["error"]["message"])
+        status, state = self.request("GET", "/api/state")
+        self.assertEqual(status, 200)
+        self.assertEqual(state["data"]["automation"]["state"], "blocked")
+        self.assertEqual(state["data"]["spot"]["orders"], [])
 
     def test_invalid_requests_are_json_errors_without_tracebacks(self) -> None:
         status, response = self.request("POST", "/api/spot/orders", {})

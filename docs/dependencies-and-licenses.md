@@ -11,7 +11,7 @@ only:
   configuration and Spot/Futures accounting models
 - `sqlite3` and `json` for versioned local Futures persistence and recovery
 - `http.server`, `threading`, and `importlib.resources` for the local dashboard
-- `argparse` for the validation command and dashboard startup
+- `argparse` and `signal` for validation, dashboard, and runner startup
 - `unittest` for the test suite
 
 Python and its standard library are distributed under the Python Software

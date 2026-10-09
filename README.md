@@ -23,10 +23,12 @@ errors. It omits the current in-progress candle, rejects future or malformed
 data, has deterministic offline coverage, and never accepts private
 credentials.
 
-This checkout still does **not** implement ticker/trade/order-book exchange
-adapters or strategy execution. No real-trading capability or private API
-credential path exists. The public Binance connector remains read-only and
-both paper engines never submit exchange orders.
+This checkout still does **not** implement private account/order-book
+exchange adapters or real strategy execution. It now includes deterministic
+research strategies and a paper-only autonomous runner. No real-trading
+capability or private API credential path exists. The public Binance
+connectors remain read-only and both paper engines never submit exchange
+orders.
 
 ## Section 1 status
 
@@ -70,8 +72,9 @@ orders, fills, fees, funding, liquidation and audit history, safety state, and
 reconciliation. Explicit candle, order, fill, mark, funding, cancel, and safety
 reset actions are validated by the existing engines; duplicate financial
 requests require the engines' idempotency keys. The Futures SQLite store is
-used across dashboard restarts, while the existing Spot engine remains
-in-memory as documented.
+used across dashboard restarts. Manual Spot operations use the existing
+in-memory engine; the autonomous runner separately journals and restores its
+Spot paper accounting snapshot.
 
 Start it locally with:
 
@@ -82,6 +85,24 @@ PYTHONPATH=src python3 -m trad.dashboard
 The server binds to localhost by default. Use `--host 0.0.0.0` only when a
 controlled local preview requires it; this is not a public deployment or an
 authenticated financial-control service.
+
+## Automated paper research status
+
+**Complete: causal strategy catalogue, train/validation selection, and
+persistent pauseable paper runner.**
+
+The registry includes EMA, RSI, MACD, Bollinger Bands, breakout, momentum,
+trend-following, and mean-reversion candidates. All candidates are evaluated
+and recorded with fees, risk, validation performance, and failure reasons.
+Only an accepted candidate can be selected; if none passes, both domain loops
+remain blocked. `trad-runner` uses separate public Spot and public Futures
+OHLCV endpoints, separate engines, and a durable SQLite run journal. See
+[`docs/strategies-and-runner.md`](docs/strategies-and-runner.md).
+
+The local process is not a guaranteed 24/7 service. Continuous operation
+requires a persistent host and external supervisor; use `--once` or
+`--max-cycles` for bounded runs and inspect the persisted recovery state after
+restarts.
 
 ## Safety boundary
 
@@ -110,6 +131,7 @@ PYTHONPATH=src python3 -m trad config/paper-spot.example.toml --json
 PYTHONPATH=src python3 -m trad config/paper-perpetual-futures.example.toml
 PYTHONPATH=src python3 examples/futures_paper_offline.py
 PYTHONPATH=src python3 -m trad.dashboard --host 127.0.0.1 --port 8765
+PYTHONPATH=src python3 -m trad.runner --once
 PYTHONPATH=src python3 -m unittest discover -s tests -v
 ```
 
@@ -131,6 +153,7 @@ An optional editable installation is documented in
 - [Spot paper-trading engine](docs/spot-paper-engine.md)
 - [Perpetual Futures paper engine](docs/futures-paper-engine.md)
 - [Local paper dashboard](docs/dashboard.md)
+- [Strategies and autonomous runner](docs/strategies-and-runner.md)
 - [Market-data safety](docs/market-data-safety.md)
 - [Zero-cost operating guide](docs/zero-cost-operating-guide.md)
 - [Dependencies and licenses](docs/dependencies-and-licenses.md)
