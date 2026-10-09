@@ -53,8 +53,9 @@ other position is rejected as an inconsistent response. Returned candles are
 therefore compatible with the existing `OHLCV` model, including its
 `received_at >= close_time` requirement.
 
-The connector also rejects duplicate, out-of-order, or gapped candle rows.
-The returned tuple still needs to be passed through the existing
+The connector requires Binance's twelve-field kline row shape and also
+rejects duplicate, out-of-order, or gapped candle rows. The returned tuple
+still needs to be passed through the existing
 `MarketDataSafetyMonitor`; this connector does not weaken or replace the
 project's stale-data and position-opening guard.
 
@@ -67,8 +68,9 @@ The connector fails closed and raises typed errors for:
 - timeout, DNS, connection, and other transport failures;
 - oversized, invalid-UTF-8, invalid-JSON, or wrong-shaped responses;
 - Binance structured API error payloads;
-- missing fields, non-finite values, invalid prices/volume, bad close times,
-  incomplete non-final candles, duplicates, ordering errors, and gaps.
+- missing or extra kline fields, non-finite values, invalid prices/volume,
+  invalid, overflowing, or future timestamps, bad close times, incomplete
+  non-final candles, duplicates, ordering errors, and gaps.
 
 It performs no automatic retry or silent fallback. Callers must apply their own
 reconnect policy while keeping the safety monitor closed until fresh validated

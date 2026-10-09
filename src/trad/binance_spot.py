@@ -105,6 +105,7 @@ class BinanceSpotPublicConnector:
 
     KLINES_PATH = "/api/v3/klines"
     MAX_KLINE_LIMIT = 1000
+    KLINE_FIELD_COUNT = 12
 
     _INTERVAL_SECONDS: Mapping[str, int] = MappingProxyType(
         {
@@ -269,9 +270,13 @@ class BinanceSpotPublicConnector:
         completed: list[OHLCV] = []
 
         for index, row in enumerate(rows):
-            if not isinstance(row, list) or len(row) < 7:
+            if (
+                not isinstance(row, list)
+                or len(row) != BinanceSpotPublicConnector.KLINE_FIELD_COUNT
+            ):
                 raise BinanceSpotDataError(
-                    f"kline row {index} must contain at least seven fields"
+                    f"kline row {index} must contain exactly "
+                    f"{BinanceSpotPublicConnector.KLINE_FIELD_COUNT} fields"
                 )
             open_ms = _integer_field(row[0], f"kline row {index} open time", minimum=0)
             close_ms = _integer_field(row[6], f"kline row {index} close time", minimum=0)
@@ -299,6 +304,10 @@ class BinanceSpotPublicConnector:
             volume = _number_field(row[5], f"kline row {index} volume")
             open_time = _milliseconds_to_utc(open_ms, f"kline row {index} open time")
             close_time = open_time + timedelta(seconds=timeframe_seconds)
+            if open_time > received_at:
+                raise BinanceSpotDataError(
+                    f"kline row {index} open time is in the future"
+                )
 
             # Binance commonly includes the currently forming candle.  It is
             # safe to omit only the final valid row; an incomplete row in the
@@ -399,7 +408,13 @@ def _number_field(value: Any, field_name: str) -> float:
 
 
 def _milliseconds_to_utc(value: int, field_name: str) -> datetime:
+    # Avoid converting through float: large, otherwise valid millisecond
+    # timestamps lose sub-second precision when represented as seconds.
+    epoch = datetime(1970, 1, 1, tzinfo=timezone.utc)
+    seconds, milliseconds = divmod(value, 1000)
     try:
-        return datetime.fromtimestamp(value / 1000, tz=timezone.utc)
+        return epoch + timedelta(seconds=seconds, milliseconds=milliseconds)
     except (OverflowError, OSError, ValueError) as exc:
-        raise BinanceSpotDataError(f"{field_name} is outside the supported datetime range") from exc
+        raise BinanceSpotDataError(
+            f"{field_name} is outside the supported datetime range"
+        ) from exc

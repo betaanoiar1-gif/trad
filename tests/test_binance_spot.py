@@ -130,6 +130,132 @@ class BinanceSpotConnectorTests(unittest.TestCase):
 
         self.assertEqual(connector.fetch_ohlcv("BTC/USDT", "1m"), ())
 
+    def test_exact_completion_boundary_uses_exclusive_project_close_time(self) -> None:
+        just_before_close = BASE + timedelta(minutes=1) - timedelta(milliseconds=1)
+        before_connector, _ = self.connector(
+            [kline(BASE)],
+            received_at=just_before_close,
+        )
+        at_close_connector, _ = self.connector(
+            [kline(BASE)],
+            received_at=BASE + timedelta(minutes=1),
+        )
+
+        self.assertEqual(
+            before_connector.fetch_ohlcv("BTC/USDT", "1m"),
+            (),
+        )
+        completed = at_close_connector.fetch_ohlcv("BTC/USDT", "1m")
+        self.assertEqual(len(completed), 1)
+        self.assertEqual(completed[0].close_time, BASE + timedelta(minutes=1))
+
+    def test_converts_non_utc_clock_and_candle_boundaries_to_utc(self) -> None:
+        local_open = datetime(
+            2024,
+            12,
+            31,
+            19,
+            0,
+            tzinfo=timezone(timedelta(hours=-5)),
+        )
+        local_receipt = datetime(
+            2025,
+            1,
+            1,
+            0,
+            1,
+            tzinfo=timezone(timedelta(hours=-5)),
+        )
+        connector, _ = self.connector(
+            [kline(local_open)],
+            received_at=local_receipt,
+        )
+
+        [event] = connector.fetch_ohlcv("BTC/USDT", "1m")
+
+        self.assertEqual(event.open_time, datetime(2025, 1, 1, tzinfo=UTC))
+        self.assertEqual(event.close_time, datetime(2025, 1, 1, 0, 1, tzinfo=UTC))
+        self.assertEqual(event.received_at, datetime(2025, 1, 1, 5, 1, tzinfo=UTC))
+
+    def test_rejects_future_and_non_utc_clock_timestamps(self) -> None:
+        future_connector, _ = self.connector(
+            [kline(BASE + timedelta(days=1))],
+            received_at=BASE + timedelta(minutes=2),
+        )
+        with self.assertRaisesRegex(BinanceSpotDataError, "future"):
+            future_connector.fetch_ohlcv("BTC/USDT", "1m")
+
+        negative_timestamp = kline(BASE)
+        negative_timestamp[0] = "-1"
+        invalid_connector, _ = self.connector(
+            [negative_timestamp],
+            received_at=BASE + timedelta(minutes=2),
+        )
+        with self.assertRaises(BinanceSpotDataError):
+            invalid_connector.fetch_ohlcv("BTC/USDT", "1m")
+
+        overflowing_timestamp = kline(BASE)
+        overflowing_timestamp[0] = "1" + "0" * 30
+        overflowing_timestamp[6] = str(int(overflowing_timestamp[0]) + 59_999)
+        overflowing_connector, _ = self.connector(
+            [overflowing_timestamp],
+            received_at=BASE + timedelta(minutes=2),
+        )
+        with self.assertRaisesRegex(BinanceSpotDataError, "supported datetime"):
+            overflowing_connector.fetch_ohlcv("BTC/USDT", "1m")
+
+        naive_clock_connector = BinanceSpotPublicConnector(
+            http_get=FakeHTTP([kline(BASE)]),
+            clock=lambda: BASE.replace(tzinfo=None),
+        )
+        with self.assertRaisesRegex(BinanceSpotDataError, "timezone-aware"):
+            naive_clock_connector.fetch_ohlcv("BTC/USDT", "1m")
+
+    def test_preserves_millisecond_precision_for_large_valid_timestamps(self) -> None:
+        open_ms = 253402297200123  # 9999-12-31 23:00:00.123 UTC
+        row = kline(BASE)
+        row[0] = str(open_ms)
+        row[6] = str(open_ms + 59_999)
+        received_at = datetime(9999, 12, 31, 23, 1, 0, 123_000, tzinfo=UTC)
+        connector, _ = self.connector([row], received_at=received_at)
+
+        [event] = connector.fetch_ohlcv("BTC/USDT", "1m")
+
+        self.assertEqual(
+            event.open_time,
+            datetime(9999, 12, 31, 23, 0, 0, 123_000, tzinfo=UTC),
+        )
+        self.assertEqual(event.close_time, received_at)
+
+    def test_handles_adjacent_hour_day_month_and_year_boundaries(self) -> None:
+        cases = (
+            (datetime(2024, 12, 31, 23, 0, tzinfo=UTC), 3600),
+            (datetime(2024, 1, 31, tzinfo=UTC), 86_400),
+            (datetime(2024, 12, 31, tzinfo=UTC), 86_400),
+        )
+        for open_time, timeframe_seconds in cases:
+            with self.subTest(open_time=open_time, timeframe_seconds=timeframe_seconds):
+                next_open = open_time + timedelta(seconds=timeframe_seconds)
+                payload = [
+                    kline(open_time, timeframe_seconds=timeframe_seconds),
+                    kline(next_open, timeframe_seconds=timeframe_seconds),
+                ]
+                received_at = next_open + timedelta(seconds=timeframe_seconds)
+                connector, _ = self.connector(payload, received_at=received_at)
+
+                events = connector.fetch_ohlcv(
+                    "BTC/USDT",
+                    "1h" if timeframe_seconds == 3600 else "1d",
+                    limit=2,
+                )
+
+                self.assertEqual(len(events), 2)
+                self.assertEqual(events[1].open_time, next_open)
+                self.assertEqual(
+                    events[0].close_time,
+                    open_time + timedelta(seconds=timeframe_seconds),
+                )
+
     def test_rejects_invalid_request_parameters(self) -> None:
         connector, _ = self.connector([], received_at=BASE)
 
@@ -140,20 +266,67 @@ class BinanceSpotConnectorTests(unittest.TestCase):
         with self.assertRaises(BinanceSpotRequestError):
             connector.fetch_ohlcv("BTC USDT", "1m")
 
-    def test_rejects_missing_fields_invalid_values_and_bad_close_time(self) -> None:
-        cases = (
-            ([kline(BASE)[:6]], "missing fields"),
-            ([kline(BASE, high_price="not-a-number")], "invalid number"),
-            ([kline(BASE, close_ms=123)], "bad close time"),
+    def test_rejects_malformed_kline_shapes_and_numeric_contract_violations(self) -> None:
+        invalid_rows = (
+            (kline(BASE)[:6], "too few fields"),
+            (kline(BASE) + ["unexpected"], "too many fields"),
+            (kline(BASE, open_price="-1"), "negative open"),
+            (kline(BASE, high_price="99"), "high below open"),
+            (kline(BASE, low_price="101"), "low above close"),
+            (kline(BASE, close_price="0"), "non-positive close"),
+            (kline(BASE, volume="-1"), "negative volume"),
+            (kline(BASE, high_price="NaN"), "not finite high"),
+            (kline(BASE, low_price="inf"), "not finite low"),
+            (kline(BASE, close_price="1e309"), "overflow close"),
+            (kline(BASE, volume="not-a-number"), "non-numeric volume"),
+            (kline(BASE, close_ms=123), "bad close time"),
         )
-        for payload, label in cases:
+        for row, label in invalid_rows:
             with self.subTest(label=label):
                 connector, _ = self.connector(
-                    payload,
+                    [row],
                     received_at=BASE + timedelta(minutes=2),
                 )
                 with self.assertRaises(BinanceSpotDataError):
                     connector.fetch_ohlcv("BTC/USDT", "1m")
+
+        for field, value in ((0, "1.5"), (0, True), (6, "-1"), (6, "not-an-int")):
+            with self.subTest(field=field, value=value):
+                row = kline(BASE)
+                row[field] = value  # type: ignore[assignment]
+                connector, _ = self.connector(
+                    [row],
+                    received_at=BASE + timedelta(minutes=2),
+                )
+                with self.assertRaises(BinanceSpotDataError):
+                    connector.fetch_ohlcv("BTC/USDT", "1m")
+
+    def test_rejects_wrong_top_level_shape_empty_body_and_oversized_body(self) -> None:
+        wrong_shape, _ = self.connector({}, received_at=BASE)
+        with self.assertRaises(BinanceSpotResponseError):
+            wrong_shape.fetch_ohlcv("BTC/USDT", "1m")
+
+        empty_body = BinanceSpotPublicConnector(
+            http_get=lambda _url, _timeout: b"",
+            clock=lambda: BASE,
+        )
+        with self.assertRaises(BinanceSpotResponseError):
+            empty_body.fetch_ohlcv("BTC/USDT", "1m")
+
+        invalid_utf8 = BinanceSpotPublicConnector(
+            http_get=lambda _url, _timeout: b"\xff",
+            clock=lambda: BASE,
+        )
+        with self.assertRaises(BinanceSpotResponseError):
+            invalid_utf8.fetch_ohlcv("BTC/USDT", "1m")
+
+        oversized = BinanceSpotPublicConnector(
+            settings=BinanceSpotConnectorSettings(max_response_bytes=3),
+            http_get=lambda _url, _timeout: b"1234",
+            clock=lambda: BASE,
+        )
+        with self.assertRaises(BinanceSpotResponseError):
+            oversized.fetch_ohlcv("BTC/USDT", "1m")
 
     def test_rejects_nonfinal_incomplete_candle(self) -> None:
         payload = [
@@ -168,7 +341,14 @@ class BinanceSpotConnectorTests(unittest.TestCase):
         with self.assertRaisesRegex(BinanceSpotDataError, "incomplete"):
             connector.fetch_ohlcv("BTC/USDT", "1m", limit=2)
 
-    def test_rejects_timestamp_gaps_and_out_of_order_rows(self) -> None:
+    def test_rejects_timestamp_duplicates_gaps_and_out_of_order_rows(self) -> None:
+        duplicate_connector, _ = self.connector(
+            [kline(BASE), kline(BASE)],
+            received_at=BASE + timedelta(minutes=2),
+        )
+        with self.assertRaisesRegex(BinanceSpotDataError, "strictly ordered"):
+            duplicate_connector.fetch_ohlcv("BTC/USDT", "1m", limit=2)
+
         gap_connector, _ = self.connector(
             [kline(BASE), kline(BASE + timedelta(minutes=2))],
             received_at=BASE + timedelta(minutes=3),
@@ -213,12 +393,20 @@ class BinanceSpotConnectorTests(unittest.TestCase):
             connector.fetch_ohlcv("BTC/USDT", "1m")
         self.assertEqual(http_context.exception.status_code, 429)
 
+        timeout_calls = 0
+
+        def timeout(_url: str, _timeout: float) -> bytes:
+            nonlocal timeout_calls
+            timeout_calls += 1
+            raise TimeoutError()
+
         timeout_connector = BinanceSpotPublicConnector(
-            http_get=lambda _url, _timeout: (_ for _ in ()).throw(TimeoutError()),
+            http_get=timeout,
             clock=lambda: BASE,
         )
         with self.assertRaises(BinanceSpotTransportError):
             timeout_connector.fetch_ohlcv("BTC/USDT", "1m")
+        self.assertEqual(timeout_calls, 1)
 
         connection_connector = BinanceSpotPublicConnector(
             http_get=lambda _url, _timeout: (_ for _ in ()).throw(
