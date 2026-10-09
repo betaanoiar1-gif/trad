@@ -2,9 +2,9 @@
 
 ## Scope
 
-Phase 4, Prompt 1 adds one CPU-only, read-only connector for completed Spot
-OHLCV candles. It uses Python's standard library and the public Binance Spot
-REST endpoint:
+Phase 4, Step 4 provides one CPU-only, read-only connector for completed
+Spot OHLCV candles. It uses Python's standard library and the public Binance
+Spot REST endpoint:
 
 ```text
 GET https://api.binance.com/api/v3/klines

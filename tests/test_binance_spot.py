@@ -81,6 +81,22 @@ class BinanceSpotConnectorTests(unittest.TestCase):
         )
         return connector, fake_http
 
+    def test_package_exports_connector_interface_without_network(self) -> None:
+        import trad
+
+        self.assertIs(trad.BinanceSpotPublicConnector, BinanceSpotPublicConnector)
+        fake_http = FakeHTTP([kline(BASE)])
+        connector = trad.BinanceSpotPublicConnector(
+            http_get=fake_http,
+            clock=lambda: BASE + timedelta(minutes=1),
+        )
+
+        [event] = connector.fetch_ohlcv("BTCUSDT", "1m")
+
+        self.assertIsInstance(event, OHLCV)
+        self.assertEqual(event.symbol, "BTCUSDT")
+        self.assertEqual(len(fake_http.calls), 1)
+
     def test_fetches_completed_klines_and_omits_in_progress_tail(self) -> None:
         payload = [
             kline(BASE),

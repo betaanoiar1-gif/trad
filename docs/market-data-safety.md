@@ -4,7 +4,7 @@
 
 Phase 3, Step 3 adds a local safety layer only. It normalizes and validates
 market-data objects and gives future Paper Trading code a fail-closed decision
-for opening new simulated positions. Phase 4 Prompt 1 adds a separate,
+for opening new simulated positions. Phase 4, Step 4 adds a separate,
 read-only Binance Spot OHLCV connector that feeds the existing models. Neither
 layer uses private credentials, submits orders, simulates fills, or maintains
 an account.

@@ -3,7 +3,7 @@
 ## Scope of the completed steps
 
 Phase 3, Step 2 establishes a local configuration foundation and Step 3 adds
-the market-data safety layer. Phase 4, Prompt 1 adds an opt-in public Binance
+the market-data safety layer. Phase 4, Step 4 adds an opt-in public Binance
 Spot connector for completed OHLCV candles.
 
 The current code validates `backtest` and `paper` declarations, normalizes

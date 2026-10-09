@@ -13,18 +13,20 @@ separate default wallet.
 
 ## Phase 4 status
 
-**Prompt 1 complete: public Binance Spot OHLCV connector.**
+**Step 4 complete: public Binance Spot OHLCV connector.**
 
 The connector uses only the unauthenticated Binance Spot `/api/v3/klines`
 endpoint, converts completed candles to the existing `OHLCV` model, validates
-UTC timing, close boundaries, ordering, gaps, values, response size, HTTP
-errors, transport failures, and structured API errors. It omits the current
-in-progress candle and never accepts private credentials.
+UTC timing, exclusive close boundaries, exact response shape, ordering, gaps,
+values, bounded responses, HTTP and transport errors, and structured API
+errors. It omits the current in-progress candle, rejects future or malformed
+data, has deterministic offline coverage, and never accepts private
+credentials.
 
 This checkout still does **not** implement ticker/trade/order-book adapters,
 paper execution, fills, portfolio accounting, risk calculations, persistence,
 or a frontend. No real-trading capability or private API credential path
-exists. Prompt 2 and later steps must be handled separately.
+exists. Those remain outside Step 4.
 
 ## Safety boundary
 
