@@ -60,9 +60,9 @@ class SpotConfig:
 class PerpetualFuturesConfig:
     """Initial futures collateral and conservative leverage settings.
 
-    Funding, margin, liquidation, and venue-specific mechanics are deliberately
-    not implemented in Step 2.  The 1x defaults are a conservative declaration
-    for later simulator work, not a claim about a venue's rules.
+    The local Futures paper engine supplements these declarations with explicit
+    margin, fee, funding, and liquidation assumptions.  The 1x defaults remain
+    conservative and are not a claim about any venue's rules.
     """
 
     starting_collateral: float = 1_000.0

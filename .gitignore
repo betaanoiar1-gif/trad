@@ -7,6 +7,8 @@ venv/
 .env.*
 data/
 var/
+*.sqlite3
+*.db
 .coverage
 .pytest_cache/
 .mypy_cache/

@@ -90,13 +90,15 @@ The monitor stores `last_ordering_time` separately from
 `latest_timestamp` retained as a compatibility alias).
 
 `MarketDataSafetyMonitor.can_open_new_positions(now)` is the boolean guard.
-`SpotPaperEngine` calls the equivalent health decision before accepting or
-filling a simulated order. `require_safe_for_new_position(now)` is the hard-
+`SpotPaperEngine` and `FuturesPaperEngine` call the equivalent health
+decision before accepting or filling a simulated order.
+`require_safe_for_new_position(now)` is the hard-
 guard variant that raises `DataSafetyError` when the decision is unsafe. An
 adapter that cannot construct a model must call `report_invalid_data(...)`,
 which blocks the monitor immediately instead of allowing the previous quote to
-remain trusted. Existing positions are not closed or modified by this layer;
-it only prevents new openings.
+remain trusted. The monitor itself does not close or modify positions; each
+paper engine decides whether its operation is permitted while health is unsafe.
+The Futures engine fails closed for marks and funding as well as new orders.
 
 After a data-integrity failure, the monitor remains blocked. A caller must
 confirm the source/replay recovery boundary, call `reset()`, and ingest fresh
@@ -122,8 +124,7 @@ Still not implemented:
 - WebSocket exchange adapters or automatic reconnect workers
 - private endpoints or API secrets
 - ticker, trade, or order-book exchange adapters
-- Perpetual Futures accounting
-- persistence, UI, or strategy orchestration
+- strategy orchestration or UI
 - live Paper Trading orchestration or exchange order submission
 
 Those items remain separate approval-gated steps.

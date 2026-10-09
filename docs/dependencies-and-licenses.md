@@ -1,23 +1,26 @@
 # Dependencies and licenses
 
-## Step 2 inventory
+## Section 2 inventory
 
-The Step 2 foundation has **no third-party runtime dependencies**. It uses
-Python 3.11 or newer and the standard library only:
+The completed Spot and Perpetual Futures paper engines have **no third-party
+runtime dependencies**. They use Python 3.11 or newer and the standard library
+only:
 
 - `tomllib` for TOML parsing
 - `dataclasses`, `decimal`, `enum`, `pathlib`, and `typing` for validated
-  configuration and Spot accounting models
-- `argparse` and `json` for the validation command
+  configuration and Spot/Futures accounting models
+- `sqlite3` and `json` for versioned local Futures persistence and recovery
+- `argparse` for the validation command
 - `unittest` for the test suite
 
 Python and its standard library are distributed under the Python Software
 Foundation License; the applicable text is documented by Python at
 <https://docs.python.org/3/license.html>.
 
-The project declares `dependencies = []` in `pyproject.toml`. The Section 1
-Spot paper engine uses `decimal.Decimal` from the standard library for all
-financial arithmetic. No AI service, exchange SDK, paid API, hosted database,
+The project declares `dependencies = []` in `pyproject.toml`. Both paper
+engines use `decimal.Decimal` from the standard library for financial
+arithmetic, and Futures durability uses the local SQLite library rather than a
+hosted database. No AI service, exchange SDK, paid API, hosted database,
 SaaS service, or cloud resource is required.
 
 ## Optional packaging tool

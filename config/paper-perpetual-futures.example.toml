@@ -1,5 +1,6 @@
-# Separate Perpetual Futures declaration. Futures mechanics are not implemented
-# in Step 2; the conservative 1x defaults avoid implying venue-specific behavior.
+# Separate, simulation-only Perpetual Futures declaration. The local paper
+# engine applies explicit margin, fee, funding, and liquidation assumptions;
+# these settings never submit exchange orders or access private endpoints.
 
 [run]
 mode = "paper"

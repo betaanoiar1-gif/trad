@@ -184,5 +184,7 @@ python3 -m compileall -q src tests
 The engine tests inject clocks and validated in-memory market events. They do
 not contact Binance, require API keys, access accounts, or place orders. The
 project still does not provide a live trading mode, private account access,
-exchange order submission, a strategy, Futures accounting, persistence, or a
-frontend.
+exchange order submission, a strategy, or a frontend. The separate Futures
+engine and its local persistence are documented in
+[futures-paper-engine.md](futures-paper-engine.md); this document describes
+only the completed Spot engine.

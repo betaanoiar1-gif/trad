@@ -24,10 +24,9 @@ data, has deterministic offline coverage, and never accepts private
 credentials.
 
 This checkout still does **not** implement ticker/trade/order-book exchange
-adapters, Perpetual Futures accounting, persistence, strategy execution, or a
-frontend. No real-trading capability or private API credential path exists.
-The public Binance connector remains read-only and the paper engine never
-submits exchange orders.
+adapters, strategy execution, or a frontend. No real-trading capability or
+private API credential path exists. The public Binance connector remains
+read-only and both paper engines never submit exchange orders.
 
 ## Section 1 status
 
@@ -40,6 +39,25 @@ portfolio valuation, and fail-closed risk checks integrated with the existing
 market-data safety monitor. See
 [`docs/spot-paper-engine.md`](docs/spot-paper-engine.md) for the actual Python
 interfaces and policies.
+
+## Section 2 status
+
+**Complete: Perpetual Futures paper engine and local persistence.**
+
+`FuturesPaperEngine` is an isolated, one-contract net-position simulator with a
+new 1,000 USDT collateral wallet. It supports deterministic explicit-price
+opening, increasing, partial reduction, and closing fills for long and short
+positions; Decimal margin, leverage, notional, P&L, fees, funding, exposure,
+maintenance-margin liquidation assumptions, audit events, and reconciliation.
+A SQLite path enables versioned transactional snapshots, restart recovery,
+corruption checks, and rollback-safe durable history. See
+[`docs/futures-paper-engine.md`](docs/futures-paper-engine.md) and the
+[offline example](examples/futures_paper_offline.py).
+
+The engine is simulation-only. It integrates the existing fail-closed
+`MarketDataSafetyMonitor`, never invents a mark or fill price, never calls a
+private endpoint, and never submits an exchange order. Its liquidation model
+is deliberately explicit and conservative rather than venue-specific.
 
 ## Safety boundary
 
@@ -65,6 +83,8 @@ standard library only:
 ```bash
 PYTHONPATH=src python3 -m trad config/backtest.example.toml
 PYTHONPATH=src python3 -m trad config/paper-spot.example.toml --json
+PYTHONPATH=src python3 -m trad config/paper-perpetual-futures.example.toml
+PYTHONPATH=src python3 examples/futures_paper_offline.py
 PYTHONPATH=src python3 -m unittest discover -s tests -v
 ```
 
@@ -84,6 +104,7 @@ An optional editable installation is documented in
 
 - [Binance Spot connector](docs/binance-spot-connector.md)
 - [Spot paper-trading engine](docs/spot-paper-engine.md)
+- [Perpetual Futures paper engine](docs/futures-paper-engine.md)
 - [Market-data safety](docs/market-data-safety.md)
 - [Zero-cost operating guide](docs/zero-cost-operating-guide.md)
 - [Dependencies and licenses](docs/dependencies-and-licenses.md)
