@@ -343,7 +343,7 @@ class MarketDataPolicy:
 class DataHealth:
     """A point-in-time safety decision for simulated new positions.
 
-    ``latest_timestamp`` is the freshness timestamp. For OHLCV it is the
+    ``latest_freshness_time`` is the freshness timestamp. For OHLCV it is the
     candle ``close_time`` rather than the opening ``timestamp``.
     """
 
@@ -354,7 +354,13 @@ class DataHealth:
     kind: MarketDataKind | None = None
     symbol: str | None = None
     stream_key: str | None = None
-    latest_timestamp: datetime | None = None
+    latest_freshness_time: datetime | None = None
+
+    @property
+    def latest_timestamp(self) -> datetime | None:
+        """Backward-compatible alias for the freshness timestamp."""
+
+        return self.latest_freshness_time
 
     @property
     def is_safe(self) -> bool:
@@ -366,9 +372,9 @@ class _StreamState:
     kind: MarketDataKind
     symbol: str
     key: str
-    last_timestamp: datetime | None = None
+    last_ordering_time: datetime | None = None
     last_fingerprint: tuple[Any, ...] | None = None
-    latest_timestamp: datetime | None = None
+    latest_freshness_time: datetime | None = None
     latest_received_at: datetime | None = None
     last_sequence: int | None = None
     same_timestamp_ids: set[tuple[Any, ...]] = field(default_factory=set)
@@ -459,12 +465,12 @@ class MarketDataSafetyMonitor:
 
         interval = _expected_interval(event, kind, self.policy)
         if (
-            state.last_timestamp is not None
+            state.last_ordering_time is not None
             and interval is not None
-            and (event.timestamp - state.last_timestamp).total_seconds()
+            and (event.timestamp - state.last_ordering_time).total_seconds()
             > interval + self.policy.gap_tolerance_seconds
         ):
-            delta = (event.timestamp - state.last_timestamp).total_seconds()
+            delta = (event.timestamp - state.last_ordering_time).total_seconds()
             return self._mark_issue(
                 state,
                 DataHealthStatus.GAP,
@@ -474,11 +480,11 @@ class MarketDataSafetyMonitor:
             )
 
         fingerprint = _fingerprint(event, kind)
-        if state.last_timestamp != event.timestamp:
+        if state.last_ordering_time != event.timestamp:
             state.same_timestamp_ids.clear()
-        state.latest_timestamp = freshness_time
+        state.latest_freshness_time = freshness_time
         state.latest_received_at = event.received_at
-        state.last_timestamp = event.timestamp
+        state.last_ordering_time = event.timestamp
         state.last_fingerprint = fingerprint
         state.same_timestamp_ids.add(_same_timestamp_identity(event, kind))
         if isinstance(event, OrderBook) and event.sequence is not None:
@@ -541,7 +547,7 @@ class MarketDataSafetyMonitor:
         for state in sorted(self._streams.values(), key=lambda item: item.key):
             if state.status is not DataHealthStatus.SAFE:
                 return self._state_health(state, checked_at)
-            if state.latest_timestamp is None or state.latest_received_at is None:
+            if state.latest_freshness_time is None or state.latest_received_at is None:
                 return self._state_health(
                     state,
                     checked_at,
@@ -555,7 +561,7 @@ class MarketDataSafetyMonitor:
                     status=DataHealthStatus.INVALID,
                     reason="latest receipt timestamp is in the future",
                 )
-            age = (checked_at - state.latest_timestamp).total_seconds()
+            age = (checked_at - state.latest_freshness_time).total_seconds()
             if age > self.policy.max_age_seconds:
                 age_name = (
                     "latest candle age since close"
@@ -569,7 +575,7 @@ class MarketDataSafetyMonitor:
                     reason=f"{age_name} {age:.3f}s exceeds "
                     f"{self.policy.max_age_seconds:.3f}s",
                 )
-            lag = (state.latest_received_at - state.latest_timestamp).total_seconds()
+            lag = (state.latest_received_at - state.latest_freshness_time).total_seconds()
             if lag > self.policy.max_source_lag_seconds:
                 lag_name = (
                     "latest candle completion lag"
@@ -635,13 +641,13 @@ class MarketDataSafetyMonitor:
         kind: MarketDataKind,
     ) -> tuple[DataHealthStatus, str] | None:
         fingerprint = _fingerprint(event, kind)
-        if state.last_timestamp is not None:
-            if event.timestamp < state.last_timestamp:
+        if state.last_ordering_time is not None:
+            if event.timestamp < state.last_ordering_time:
                 return (
                     DataHealthStatus.OUT_OF_ORDER,
                     "event timestamp is earlier than the last accepted timestamp",
                 )
-            if event.timestamp == state.last_timestamp:
+            if event.timestamp == state.last_ordering_time:
                 identity = _same_timestamp_identity(event, kind)
                 if identity in state.same_timestamp_ids:
                     return (
@@ -678,7 +684,7 @@ class MarketDataSafetyMonitor:
                         DataHealthStatus.SEQUENCE_GAP,
                         "order-book sequence is not contiguous",
                     )
-        if state.last_timestamp == event.timestamp and fingerprint == state.last_fingerprint:
+        if state.last_ordering_time == event.timestamp and fingerprint == state.last_fingerprint:
             return (
                 DataHealthStatus.DUPLICATE,
                 "event fingerprint duplicates the last accepted event",
@@ -695,7 +701,7 @@ class MarketDataSafetyMonitor:
     ) -> DataHealth:
         state.status = status
         state.reason = reason
-        state.latest_timestamp = _freshness_time(event)
+        state.latest_freshness_time = _freshness_time(event)
         state.latest_received_at = event.received_at
         return self.health(checked_at)
 
@@ -715,7 +721,7 @@ class MarketDataSafetyMonitor:
             kind=state.kind,
             symbol=state.symbol,
             stream_key=state.key,
-            latest_timestamp=state.latest_timestamp,
+            latest_freshness_time=state.latest_freshness_time,
         )
 
 

@@ -252,6 +252,38 @@ class MarketDataSafetyMonitorTests(unittest.TestCase):
         self.assertEqual(old_health.status, DataHealthStatus.STALE)
         self.assertFalse(old_health.allow_new_positions)
 
+    def test_health_staleness_uses_close_time_for_one_and_five_minute(self) -> None:
+        for timeframe_seconds in (60, 300):
+            with self.subTest(timeframe_seconds=timeframe_seconds):
+                event = candle(
+                    0,
+                    timeframe_seconds=timeframe_seconds,
+                    receive_delay_seconds=0,
+                )
+                monitor = MarketDataSafetyMonitor(self.policy())
+                received = monitor.ingest(event, now=event.received_at)
+                assert event.close_time is not None
+
+                before_expiry = event.close_time + timedelta(seconds=29)
+                after_expiry = event.close_time + timedelta(seconds=31)
+                healthy_before_expiry = monitor.health(before_expiry)
+                stale_after_expiry = monitor.health(after_expiry)
+                stream_key = (
+                    f"ohlcv:BTC/USDT:timeframe={timeframe_seconds}"
+                )
+                state = monitor._streams[stream_key]
+
+                self.assertEqual(received.status, DataHealthStatus.SAFE)
+                self.assertEqual(
+                    healthy_before_expiry.status,
+                    DataHealthStatus.SAFE,
+                )
+                self.assertTrue(healthy_before_expiry.allow_new_positions)
+                self.assertEqual(stale_after_expiry.status, DataHealthStatus.STALE)
+                self.assertFalse(stale_after_expiry.allow_new_positions)
+                self.assertEqual(state.last_ordering_time, event.open_time)
+                self.assertEqual(state.latest_freshness_time, event.close_time)
+
     def test_stale_data_blocks_new_positions_and_hard_guard(self) -> None:
         monitor = MarketDataSafetyMonitor(self.policy())
         first = candle(0)

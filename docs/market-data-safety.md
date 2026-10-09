@@ -81,6 +81,12 @@ The following states block new simulated positions:
 - `sequence_gap`
 - `no_data`
 
+The monitor stores `last_ordering_time` separately from
+`latest_freshness_time`. For OHLCV, the former is `open_time` and the latter is
+`close_time`; for other event types both are based on the event timestamp.
+`DataHealth.latest_freshness_time` exposes the freshness time (with
+`latest_timestamp` retained as a compatibility alias).
+
 `MarketDataSafetyMonitor.can_open_new_positions(now)` is the boolean guard.
 Future Paper Trading code must call it before opening a new simulated position;
 `require_safe_for_new_position(now)` is the hard-guard variant that raises
