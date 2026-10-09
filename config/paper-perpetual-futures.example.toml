@@ -1,0 +1,19 @@
+# Separate Perpetual Futures declaration. Futures mechanics are not implemented
+# in Step 2; the conservative 1x defaults avoid implying venue-specific behavior.
+
+[run]
+mode = "paper"
+instrument = "perpetual_futures"
+symbol = "BTC/USDT:USDT"
+market_data_source = "public_read_only"
+
+[safety]
+simulation_only = true
+
+[perpetual_futures]
+starting_collateral = 10000.0
+initial_leverage = 1.0
+max_leverage = 1.0
+
+[resources]
+max_cpu_workers = 1

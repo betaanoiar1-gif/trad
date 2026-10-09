@@ -1,0 +1,19 @@
+# Paper-mode declaration only. The paper engine is intentionally not implemented
+# until Phase 3, Step 3. This file is validated but does not place orders.
+
+[run]
+mode = "paper"
+instrument = "spot"
+symbol = "BTC/USDT"
+# Step 3 will define the public read-only adapter and its safety checks.
+market_data_source = "public_read_only"
+
+[safety]
+simulation_only = true
+
+[spot]
+starting_quote_balance = 10000.0
+starting_base_balance = 0.0
+
+[resources]
+max_cpu_workers = 1

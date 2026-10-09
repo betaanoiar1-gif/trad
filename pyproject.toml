@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "trad"
+version = "0.1.0"
+description = "CPU-only, simulation-only foundation for a crypto strategy lab"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.scripts]
+trad-config = "trad.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

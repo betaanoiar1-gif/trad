@@ -1,0 +1,19 @@
+# Historical replay validation only. No network access is performed in Step 2.
+
+[run]
+mode = "backtest"
+instrument = "spot"
+symbol = "BTC/USDT"
+market_data_source = "replay"
+
+[safety]
+# This must remain true. Real trading is not supported by this project.
+simulation_only = true
+
+[spot]
+starting_quote_balance = 10000.0
+starting_base_balance = 0.0
+
+[resources]
+# The project is designed to run locally on CPU without a GPU.
+max_cpu_workers = 1
