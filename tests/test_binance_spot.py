@@ -85,6 +85,10 @@ class BinanceSpotConnectorTests(unittest.TestCase):
         import trad
 
         self.assertIs(trad.BinanceSpotPublicConnector, BinanceSpotPublicConnector)
+        self.assertEqual(
+            BinanceSpotConnectorSettings().base_url,
+            "https://data-api.binance.vision",
+        )
         fake_http = FakeHTTP([kline(BASE)])
         connector = trad.BinanceSpotPublicConnector(
             http_get=fake_http,

@@ -7,8 +7,13 @@ Spot OHLCV candles. It uses Python's standard library and the public Binance
 Spot REST endpoint:
 
 ```text
-GET https://api.binance.com/api/v3/klines
+GET https://data-api.binance.vision/api/v3/klines
 ```
+
+`data-api.binance.vision` is the market-data-only base URL recommended by
+Binance for public market-data routes; the older `api.binance.com` base remains
+configurable if a deployment specifically requires it. This connector never
+uses account or trading routes.
 
 No API key, account endpoint, private credential, order endpoint, or trading
 operation is present. The ordinary configuration CLI and Dashboard do not

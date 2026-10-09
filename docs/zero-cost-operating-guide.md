@@ -17,10 +17,11 @@ liquidation, and transactional local SQLite recovery; see
 [futures-paper-engine.md](futures-paper-engine.md).
 
 It does **not** run a strategy, submit an exchange order, access an account, or
-provide live trading. The Binance connector and paper engines are not called
-automatically by the CLI or configuration validator; callers opt into the
-Python interfaces documented in [spot-paper-engine.md](spot-paper-engine.md)
-and [futures-paper-engine.md](futures-paper-engine.md).
+provide live trading. The configuration validator remains offline; callers
+explicitly opt into public market data through `trad-runner` or the Dashboard's
+Evaluate/Start controls. The paper engines never submit exchange orders. See
+[spot-paper-engine.md](spot-paper-engine.md) and
+[futures-paper-engine.md](futures-paper-engine.md).
 
 ## Requirements
 
@@ -83,7 +84,7 @@ candles = connector.fetch_ohlcv("BTC/USDT", "1m", limit=100)
 The connector uses only:
 
 ```text
-GET https://api.binance.com/api/v3/klines
+GET https://data-api.binance.vision/api/v3/klines
 ```
 
 It supports fixed-duration intervals and returns existing project `OHLCV`

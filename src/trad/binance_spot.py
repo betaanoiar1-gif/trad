@@ -62,7 +62,9 @@ class BinanceSpotDataError(BinanceSpotConnectorError):
 class BinanceSpotConnectorSettings:
     """Safe local settings for the public Binance Spot connector."""
 
-    base_url: str = "https://api.binance.com"
+    # Binance documents data-api.binance.vision as the market-data-only
+    # endpoint; it avoids account/trading API routing for this paper project.
+    base_url: str = "https://data-api.binance.vision"
     timeout_seconds: float = 10.0
     max_response_bytes: int = 2_000_000
     user_agent: str = "trad-public-market-data/0.1"
