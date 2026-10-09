@@ -188,6 +188,11 @@ __all__ = [
     "FuturesRiskError",
     "FuturesRiskLimits",
     "FuturesValidationError",
+    "DashboardError",
+    "DashboardHTTPServer",
+    "DashboardPersistenceError",
+    "DashboardRequestError",
+    "DashboardService",
     "Instrument",
     "MarketDataSource",
     "PerpetualFuturesConfig",
@@ -215,3 +220,21 @@ __all__ = [
     "TradeSide",
     "event_kind",
 ]
+
+
+_DASHBOARD_EXPORTS = {
+    "DashboardError",
+    "DashboardHTTPServer",
+    "DashboardPersistenceError",
+    "DashboardRequestError",
+    "DashboardService",
+}
+
+
+def __getattr__(name: str):
+    if name in _DASHBOARD_EXPORTS:
+        import importlib
+
+        dashboard = importlib.import_module(".dashboard", __name__)
+        return getattr(dashboard, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

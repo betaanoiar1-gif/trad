@@ -11,6 +11,10 @@ dependencies = []
 
 [project.scripts]
 trad-config = "trad.cli:main"
+trad-dashboard = "trad.dashboard:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+trad = ["web/*.html", "web/*.js", "web/*.css"]

@@ -10,7 +10,8 @@ only:
 - `dataclasses`, `decimal`, `enum`, `pathlib`, and `typing` for validated
   configuration and Spot/Futures accounting models
 - `sqlite3` and `json` for versioned local Futures persistence and recovery
-- `argparse` for the validation command
+- `http.server`, `threading`, and `importlib.resources` for the local dashboard
+- `argparse` for the validation command and dashboard startup
 - `unittest` for the test suite
 
 Python and its standard library are distributed under the Python Software

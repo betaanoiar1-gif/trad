@@ -8,7 +8,8 @@ Spot connector for completed OHLCV candles.
 
 The current code validates `backtest` and `paper` declarations, normalizes
 local market-data events, validates public Binance klines, and provides
-CPU-only Spot and Perpetual Futures paper engines. Both engines use
+CPU-only Spot and Perpetual Futures paper engines plus a dependency-free local
+browser dashboard. Both engines use
 deterministic fills, Decimal accounting, fees, risk checks, and auditable
 ledgers. The Futures engine additionally provides explicit margin, funding,
 liquidation, and transactional local SQLite recovery; see
@@ -43,6 +44,7 @@ PYTHONPATH=src python3 -m trad config/backtest.example.toml
 PYTHONPATH=src python3 -m trad config/paper-spot.example.toml --json
 PYTHONPATH=src python3 -m trad config/paper-perpetual-futures.example.toml
 PYTHONPATH=src python3 examples/futures_paper_offline.py
+PYTHONPATH=src python3 -m trad.dashboard --host 127.0.0.1 --port 8765
 ```
 
 The optional packaging workflow is:
@@ -106,6 +108,17 @@ is conservative and explicitly documented; it is not an exchange matching or
 liquidation implementation. The checked-in
 `examples/futures_paper_offline.py` is fully deterministic and requires no
 network.
+
+## Local browser dashboard
+
+The dependency-free dashboard is documented in
+[dashboard.md](dashboard.md). Start it with
+`PYTHONPATH=src python3 -m trad.dashboard`; it serves
+`http://127.0.0.1:8765/` by default, binds only to localhost, and stores only
+Futures state in the ignored local `var/futures-dashboard.sqlite3` file. It
+uses explicit candle and execution inputs and never contacts a live exchange.
+The dashboard tests use a local ephemeral HTTP server and do not require a
+browser driver or network access.
 
 ## Modes and safety boundary
 

@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark light">
+  <title>trad paper dashboard</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <header class="site-header">
+    <div>
+      <p class="eyebrow">TRAD / LOCAL SIMULATION</p>
+      <h1>Paper-trading control room</h1>
+      <p class="lede">A local view of the independent Spot and Perpetual Futures engines.</p>
+    </div>
+    <div class="header-status">
+      <span id="mode-badge" class="badge badge-warning">PAPER ONLY</span>
+      <span id="connection-status" class="muted">Loading…</span>
+    </div>
+  </header>
+
+  <main>
+    <section id="global-alert" class="alert warning" role="status">
+      Paper trading only. This dashboard never submits real exchange orders and never fabricates a current price.
+    </section>
+
+    <section class="panel market-panel">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">SAFETY GATE</p>
+          <h2>Record explicit market data</h2>
+        </div>
+        <button id="reset-safety" class="button button-quiet" type="button">Reset safety monitors</button>
+      </div>
+      <p class="help">Both engines start fail-closed. Enter a completed candle from a trusted source before submitting or filling paper orders. The price is recorded input, not a live quote.</p>
+      <form id="market-form" class="form-grid">
+        <label>Scope
+          <select name="domain">
+            <option value="both">Spot + Futures</option>
+            <option value="spot">Spot only</option>
+            <option value="futures">Futures only</option>
+          </select>
+        </label>
+        <label>Symbol
+          <input name="symbol" value="BTC/USDT" required maxlength="64">
+        </label>
+        <label>Timeframe seconds
+          <input name="timeframe_seconds" type="number" min="1" step="1" value="60" required>
+        </label>
+        <label>Open time
+          <input id="market-timestamp" name="timestamp" type="datetime-local" required>
+        </label>
+        <label>Close time
+          <input id="market-close-time" name="close_time" type="datetime-local" required>
+        </label>
+        <label>Received at
+          <input id="market-received-at" name="received_at" type="datetime-local" required>
+        </label>
+        <label>Open
+          <input name="open" inputmode="decimal" placeholder="explicit price" required>
+        </label>
+        <label>High
+          <input name="high" inputmode="decimal" placeholder="explicit price" required>
+        </label>
+        <label>Low
+          <input name="low" inputmode="decimal" placeholder="explicit price" required>
+        </label>
+        <label>Close
+          <input name="close" inputmode="decimal" placeholder="explicit price" required>
+        </label>
+        <label>Volume
+          <input name="volume" inputmode="decimal" placeholder="explicit volume" required>
+        </label>
+        <div class="form-actions">
+          <button class="button button-primary" type="submit">Record validated candle</button>
+        </div>
+      </form>
+      <div id="market-result" class="inline-status empty">No candle recorded by this page yet.</div>
+    </section>
+
+    <section class="overview-grid">
+      <article class="engine-card spot-card">
+        <div class="section-heading compact">
+          <div>
+            <p class="eyebrow">ACCOUNT 01</p>
+            <h2>Spot</h2>
+          </div>
+          <span id="spot-health-badge" class="badge badge-danger">NO DATA</span>
+        </div>
+        <p id="spot-health-reason" class="health-reason">Waiting for validated market data.</p>
+        <div id="spot-wallet" class="wallet-grid"><div class="loading">Loading wallet…</div></div>
+        <div id="spot-valuation" class="valuation-card"></div>
+        <div id="spot-reconciliation" class="reconciliation"></div>
+        <div class="persistence-line"><strong>Storage:</strong> in-memory Spot engine; balances reset when the dashboard process restarts.</div>
+      </article>
+      <article class="engine-card futures-card">
+        <div class="section-heading compact">
+          <div>
+            <p class="eyebrow">ACCOUNT 02</p>
+            <h2>Perpetual Futures</h2>
+          </div>
+          <span id="futures-health-badge" class="badge badge-danger">NO DATA</span>
+        </div>
+        <p id="futures-health-reason" class="health-reason">Waiting for validated market data.</p>
+        <div id="futures-wallet" class="wallet-grid"><div class="loading">Loading wallet…</div></div>
+        <div id="futures-valuation" class="valuation-card"></div>
+        <div class="persistence-line"><strong>Storage:</strong> <span id="futures-storage">checking local SQLite…</span></div>
+      </article>
+    </section>
+
+    <section class="panel two-column">
+      <div>
+        <div class="section-heading compact">
+          <div>
+            <p class="eyebrow">SPOT OPERATIONS</p>
+            <h2>Orders</h2>
+          </div>
+        </div>
+        <form id="spot-order-form" class="form-grid form-grid-three">
+          <label>Side
+            <select name="side"><option value="buy">Buy</option><option value="sell">Sell</option></select>
+          </label>
+          <label>Quantity
+            <input name="quantity" inputmode="decimal" placeholder="base quantity" required>
+          </label>
+          <label>Limit price
+            <input name="price" inputmode="decimal" placeholder="explicit price" required>
+          </label>
+          <label class="wide">Client order id (idempotency key)
+            <input name="client_order_id" placeholder="required; keep to safely retry" required maxlength="128">
+          </label>
+          <div class="form-actions"><button class="button button-primary" type="submit">Submit Spot order</button></div>
+        </form>
+        <form id="spot-fill-form" class="subform">
+          <h3>Execute an explicit Spot fill</h3>
+          <div class="form-grid form-grid-four">
+            <label>Order id<input name="order_id" placeholder="order-000001" required></label>
+            <label>Quantity<input name="quantity" inputmode="decimal" required></label>
+            <label>Fill price<input name="price" inputmode="decimal" required></label>
+            <label>Fill id<input name="fill_id" placeholder="unique retry key" required maxlength="128"></label>
+          </div>
+          <button class="button button-secondary" type="submit">Apply Spot fill</button>
+        </form>
+        <div id="spot-orders" class="table-wrap"><div class="empty">No Spot orders yet.</div></div>
+      </div>
+
+      <div>
+        <div class="section-heading compact">
+          <div>
+            <p class="eyebrow">FUTURES OPERATIONS</p>
+            <h2>Orders and position actions</h2>
+          </div>
+        </div>
+        <form id="futures-order-form" class="form-grid form-grid-three">
+          <label>Action
+            <select id="futures-action" name="action"><option value="open">Open / increase</option><option value="reduce">Reduce / close</option></select>
+          </label>
+          <label>Direction
+            <select name="side"><option value="long">Long</option><option value="short">Short</option></select>
+          </label>
+          <label>Quantity<input name="quantity" inputmode="decimal" required></label>
+          <label>Explicit order price<input name="price" inputmode="decimal" required></label>
+          <label id="leverage-field">Leverage<input name="leverage" inputmode="decimal" placeholder="engine default"></label>
+          <label>Client order id (idempotency key)<input name="client_order_id" placeholder="required; keep to safely retry" required maxlength="128"></label>
+          <div class="form-actions"><button class="button button-primary" type="submit">Submit Futures order</button></div>
+        </form>
+        <form id="futures-fill-form" class="subform">
+          <h3>Execute an explicit Futures fill</h3>
+          <div class="form-grid form-grid-four">
+            <label>Order id<input name="order_id" placeholder="order-000001" required></label>
+            <label>Quantity<input name="quantity" inputmode="decimal" required></label>
+            <label>Fill price<input name="price" inputmode="decimal" required></label>
+            <label>Fill id<input name="fill_id" placeholder="unique retry key" required maxlength="128"></label>
+          </div>
+          <button class="button button-secondary" type="submit">Apply Futures fill</button>
+        </form>
+        <div id="futures-orders" class="table-wrap"><div class="empty">No Futures orders yet.</div></div>
+      </div>
+    </section>
+
+    <section class="panel two-column">
+      <div>
+        <div class="section-heading compact"><div><p class="eyebrow">FUTURES RISK</p><h2>Mark and funding</h2></div></div>
+        <form id="futures-mark-form" class="subform">
+          <h3>Mark position</h3>
+          <p class="help">This uses only the explicit mark you enter. It may trigger the engine's documented simulated liquidation rule.</p>
+          <div class="form-grid form-grid-two"><label>Mark price<input name="price" inputmode="decimal" placeholder="explicit mark" required></label><div class="form-actions"><button class="button button-danger" type="submit">Apply mark</button></div></div>
+        </form>
+        <form id="futures-funding-form" class="subform">
+          <h3>Apply funding</h3>
+          <div class="form-grid form-grid-two"><label>Funding rate<input name="rate" inputmode="decimal" placeholder="e.g. 0.0001" required></label><label>Payment id<input name="payment_id" placeholder="unique retry key" required maxlength="128"></label></div>
+          <button class="button button-secondary" type="submit">Apply funding payment</button>
+        </form>
+      </div>
+      <div id="futures-position-panel">
+        <div class="section-heading compact"><div><p class="eyebrow">CURRENT EXPOSURE</p><h2>Position</h2></div></div>
+        <div id="futures-position" class="position-card"><div class="empty">No open Futures position.</div></div>
+        <div id="futures-reconciliation" class="reconciliation"></div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="section-heading compact"><div><p class="eyebrow">HISTORY</p><h2>Ledger, fills, funding, liquidation, and audit events</h2></div></div>
+      <div id="history" class="history-grid"><div class="empty">No history yet.</div></div>
+    </section>
+
+    <div id="toast" class="toast" role="alert" aria-live="polite"></div>
+  </main>
+  <footer>Local simulation dashboard · calculations remain authoritative in the Python paper engines · <span id="generated-at">not connected</span></footer>
+  <script src="/static/app.js" defer></script>
+</body>
+</html>

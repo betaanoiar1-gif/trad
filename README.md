@@ -24,9 +24,9 @@ data, has deterministic offline coverage, and never accepts private
 credentials.
 
 This checkout still does **not** implement ticker/trade/order-book exchange
-adapters, strategy execution, or a frontend. No real-trading capability or
-private API credential path exists. The public Binance connector remains
-read-only and both paper engines never submit exchange orders.
+adapters or strategy execution. No real-trading capability or private API
+credential path exists. The public Binance connector remains read-only and
+both paper engines never submit exchange orders.
 
 ## Section 1 status
 
@@ -59,6 +59,30 @@ The engine is simulation-only. It integrates the existing fail-closed
 private endpoint, and never submits an exchange order. Its liquidation model
 is deliberately explicit and conservative rather than venue-specific.
 
+## Section 3 status
+
+**Complete: local browser dashboard and full engine integration.**
+
+`trad.dashboard` provides a dependency-free Python HTTP server and static
+browser dashboard at `http://127.0.0.1:8765/`. The dashboard displays the
+separate Spot and Futures wallets, backend-authoritative valuation, positions,
+orders, fills, fees, funding, liquidation and audit history, safety state, and
+reconciliation. Explicit candle, order, fill, mark, funding, cancel, and safety
+reset actions are validated by the existing engines; duplicate financial
+requests require the engines' idempotency keys. The Futures SQLite store is
+used across dashboard restarts, while the existing Spot engine remains
+in-memory as documented.
+
+Start it locally with:
+
+```bash
+PYTHONPATH=src python3 -m trad.dashboard
+```
+
+The server binds to localhost by default. Use `--host 0.0.0.0` only when a
+controlled local preview requires it; this is not a public deployment or an
+authenticated financial-control service.
+
 ## Safety boundary
 
 - Supported modes are `backtest` and `paper`; `live` is rejected.
@@ -85,6 +109,7 @@ PYTHONPATH=src python3 -m trad config/backtest.example.toml
 PYTHONPATH=src python3 -m trad config/paper-spot.example.toml --json
 PYTHONPATH=src python3 -m trad config/paper-perpetual-futures.example.toml
 PYTHONPATH=src python3 examples/futures_paper_offline.py
+PYTHONPATH=src python3 -m trad.dashboard --host 127.0.0.1 --port 8765
 PYTHONPATH=src python3 -m unittest discover -s tests -v
 ```
 
@@ -105,6 +130,7 @@ An optional editable installation is documented in
 - [Binance Spot connector](docs/binance-spot-connector.md)
 - [Spot paper-trading engine](docs/spot-paper-engine.md)
 - [Perpetual Futures paper engine](docs/futures-paper-engine.md)
+- [Local paper dashboard](docs/dashboard.md)
 - [Market-data safety](docs/market-data-safety.md)
 - [Zero-cost operating guide](docs/zero-cost-operating-guide.md)
 - [Dependencies and licenses](docs/dependencies-and-licenses.md)

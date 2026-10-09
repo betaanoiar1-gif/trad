@@ -835,7 +835,15 @@ class FuturesPaperEngine:
     ) -> None:
         self.database_path = ":memory:" if database_path is None else str(database_path)
         try:
-            self._conn = sqlite3.connect(self.database_path, isolation_level=None)
+            # Dashboard requests are serialized by DashboardService's lock,
+            # but HTTP handlers run on worker threads. The engine remains
+            # deterministic at the operation boundary while allowing its
+            # transaction connection to be owned by that integration layer.
+            self._conn = sqlite3.connect(
+                self.database_path,
+                isolation_level=None,
+                check_same_thread=False,
+            )
         except sqlite3.Error as exc:
             raise FuturesPersistenceError(
                 f"could not open Futures database {self.database_path!r}"

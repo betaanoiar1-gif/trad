@@ -1,4 +1,4 @@
-name: Step 4 tests
+name: Offline tests and build checks
 
 on:
   push:
@@ -20,5 +20,16 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Run approved test command
+      - name: Run offline unit and integration tests
         run: PYTHONPATH=src python -m unittest discover -s tests -v
+
+      - name: Compile Python sources
+        run: python -m compileall -q src tests
+
+      - name: Validate dashboard browser script
+        run: node --check src/trad/web/app.js
+
+      - name: Build package and verify dashboard assets
+        run: |
+          python -m pip wheel . --no-deps --no-build-isolation -w /tmp/trad-wheel
+          unzip -l /tmp/trad-wheel/trad-*.whl | grep -E 'trad/(dashboard.py|web/(index.html|app.js|styles.css))'
