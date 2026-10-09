@@ -30,6 +30,15 @@ class RunConfigTests(unittest.TestCase):
         self.assertEqual(config.resources.max_cpu_workers, 1)
         self.assertIs(config.active_accounting_config, config.spot)
 
+    def test_spot_and_futures_default_wallets_are_separate_1000_usdt(self) -> None:
+        config = RunConfig.from_mapping({})
+
+        self.assertEqual(config.spot.starting_quote_balance, 1000.0)
+        self.assertEqual(config.perpetual_futures.starting_collateral, 1000.0)
+        self.assertIsNot(config.spot, config.perpetual_futures)
+        self.assertEqual(config.spot.starting_base_balance, 0.0)
+        self.assertEqual(config.perpetual_futures.initial_leverage, 1.0)
+
     def test_loads_paper_spot_configuration(self) -> None:
         config = RunConfig.from_mapping(
             {

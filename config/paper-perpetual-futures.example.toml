@@ -11,7 +11,7 @@ market_data_source = "public_read_only"
 simulation_only = true
 
 [perpetual_futures]
-starting_collateral = 10000.0
+starting_collateral = 1000.0
 initial_leverage = 1.0
 max_leverage = 1.0
 

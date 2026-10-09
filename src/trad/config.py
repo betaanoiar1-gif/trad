@@ -52,7 +52,7 @@ class SafetyConfig:
 class SpotConfig:
     """Initial Spot balances; no derivatives fields are present here."""
 
-    starting_quote_balance: float = 10_000.0
+    starting_quote_balance: float = 1_000.0
     starting_base_balance: float = 0.0
 
 
@@ -65,7 +65,7 @@ class PerpetualFuturesConfig:
     for later simulator work, not a claim about a venue's rules.
     """
 
-    starting_collateral: float = 10_000.0
+    starting_collateral: float = 1_000.0
     initial_leverage: float = 1.0
     max_leverage: float = 1.0
 
@@ -165,7 +165,7 @@ class RunConfig:
         )
         spot = SpotConfig(
             starting_quote_balance=_non_negative_float(
-                spot_table.get("starting_quote_balance", 10_000.0),
+                spot_table.get("starting_quote_balance", 1_000.0),
                 "spot.starting_quote_balance",
             ),
             starting_base_balance=_non_negative_float(
@@ -181,7 +181,7 @@ class RunConfig:
             "perpetual_futures",
         )
         starting_collateral = _non_negative_float(
-            futures_table.get("starting_collateral", 10_000.0),
+            futures_table.get("starting_collateral", 1_000.0),
             "perpetual_futures.starting_collateral",
         )
         initial_leverage = _bounded_float(

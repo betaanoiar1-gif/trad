@@ -1,10 +1,13 @@
 # Zero-cost operating guide
 
-## Scope of this step
+## Scope of the completed steps
 
-Phase 3, Step 2 establishes a local configuration foundation only. It
-validates `backtest` and `paper` declarations and enforces simulation-only
-operation. It does **not** fetch market data, run a strategy, simulate a fill,
+Phase 3, Step 2 establishes a local configuration foundation and Step 3 adds
+the market-data safety layer. The current code validates `backtest` and
+`paper` declarations, normalizes local market-data events, detects unsafe
+conditions, and blocks new simulated positions when data is not safe.
+
+It does **not** connect to an exchange, run a strategy, simulate a fill,
 maintain a portfolio, or place an order. Paper execution begins only after a
 separate approved implementation step.
 
@@ -49,6 +52,10 @@ Run the tests with the standard library test runner:
 ```bash
 PYTHONPATH=src python3 -m unittest discover -s tests -v
 ```
+
+The market-data models, thresholds, failure states, and recovery contract are
+documented in [market-data safety](market-data-safety.md). The deterministic
+replay tests do not use the internet.
 
 ## Modes and safety boundary
 

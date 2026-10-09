@@ -12,7 +12,7 @@ market_data_source = "public_read_only"
 simulation_only = true
 
 [spot]
-starting_quote_balance = 10000.0
+starting_quote_balance = 1000.0
 starting_base_balance = 0.0
 
 [resources]

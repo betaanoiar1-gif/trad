@@ -2,17 +2,19 @@
 
 ## Phase 3 status
 
-**Step 2 complete: local zero-cost project foundation.**
+**Step 3 complete: market-data safety layer.**
 
-This checkout is the official starting point for Phase 3. The current step
-adds a validated configuration model, explicit non-live run modes, separate
-Spot and Perpetual Futures configuration namespaces, a CPU-only resource
-setting, a validation CLI, example configurations, and standard-library tests.
+Step 2 established the local zero-cost foundation. Step 3 adds validated,
+normalized market-data models, deterministic replay support, timestamp and
+ordering checks, gap and sequence-gap detection, stale/delayed-data checks,
+and a fail-closed guard for opening new simulated positions. Spot and
+Perpetual Futures configuration remains separate, with 1,000 USDT in each
+separate default wallet.
 
-It intentionally does **not** implement market-data ingestion, a paper
+This checkout still does **not** implement a public exchange adapter, paper
 execution engine, fills, portfolio accounting, risk calculations, persistence,
-or a frontend. No real-trading capability or private API credential path exists.
-Step 3 must be approved before those components are added.
+or a frontend. No real-trading capability or private API credential path
+exists. Step 4 must be approved before those components are added.
 
 ## Safety boundary
 
@@ -20,10 +22,14 @@ Step 3 must be approved before those components are added.
 - Every configuration is required to remain `simulation_only = true`.
 - Sensitive credential fields and real-order fields are rejected.
 - Spot and Perpetual Futures settings cannot be mixed.
-- Defaults are historical replay, Spot, one CPU worker, and conservative
-  futures leverage of 1x.
-- The `paper` examples are declarations validated by Step 2 only; they do not
-  connect to an exchange or submit simulated orders yet.
+- Defaults are historical replay, Spot, one CPU worker, and 1,000 USDT for each
+  separate Spot/Futures wallet with conservative futures leverage of 1x.
+- Market-data safety starts at `no_data` and blocks new simulated positions
+  until validated data is received.
+- Stale, delayed, invalid, duplicated, out-of-order, or gapped data keeps the
+  position-opening guard closed.
+- The `paper` examples do not connect to an exchange or submit orders. The
+  `public_read_only` value is only a future adapter declaration.
 
 ## Quick start without installing dependencies
 
@@ -50,6 +56,7 @@ An optional editable installation is documented in
 
 ## Documentation
 
+- [Market-data safety](docs/market-data-safety.md)
 - [Zero-cost operating guide](docs/zero-cost-operating-guide.md)
 - [Dependencies and licenses](docs/dependencies-and-licenses.md)
 
